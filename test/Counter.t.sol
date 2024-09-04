@@ -36,59 +36,63 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
     function setUp() public {
         deployFreshManagerAndRouters();
-        (Currency currency0, Currency currency1) = deployMintAndApprove2Currencies();
+        (currency0, currency1) = deployMintAndApprove2Currencies();
 
-
-        uint24 swapFee = 4000; // 0.40% fee tier
-        int24 tickSpacing = 10;
 
           // Deploy hook to an address that has the proper flags set
      // Deploy hook to an address that has the proper flags set
-    uint160 flags = uint160(
-        Hooks.BEFORE_ADD_LIQUIDITY_FLAG | 
-        Hooks.AFTER_ADD_LIQUIDITY_FLAG | 
-        Hooks.BEFORE_SWAP_FLAG | 
-        Hooks.AFTER_SWAP_FLAG
+       uint160 flags = uint160(
+        Hooks.BEFORE_SWAP_FLAG
     );
+    address hookAddress = address(flags);
     deployCodeTo(
         "TWAMMHook.sol",
         abi.encode(IPoolManager(address(manager)), Currency.unwrap(currency0), address(this), 7000 days),
-        address(flags)
+        hookAddress
     );
 
     // Set the twammHook to the deployed address
     twammHook = TWAMMHook(address(flags));
-    (PoolKey memory initKey, PoolId initId) = newPoolKeyWithTWAMM(twammHook);
+    //(PoolKey memory initKey, PoolId initId) = newPoolKeyWithTWAMM(twammHook);
 
     // poolKey = PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(address(twammHook)));
-    manager.initialize(initKey, SQRT_PRICE_1_1 + 1, ZERO_BYTES);
+    //manager.initialize(initKey, SQRT_PRICE_1_1 + 1, ZERO_BYTES);
+     MockERC20(Currency.unwrap(currency0)).approve(
+        address(twammHook),
+        type(uint256).max
+    );
+    MockERC20(Currency.unwrap(currency1)).approve(
+        address(twammHook),
+        type(uint256).max
+    );
 
-
-       PoolKey memory pool = PoolKey({
-            currency0: currency0,
-            currency1: currency1,
-            fee: swapFee,
-            tickSpacing: tickSpacing,
-            hooks: IHooks(address(twammHook))
-        });
+    //    PoolKey memory pool = PoolKey({
+    //         currency0: currency0,
+    //         currency1: currency1,
+    //         fee: swapFee,
+    //         tickSpacing: tickSpacing,
+    //         hooks: IHooks(address(twammHook))
+    //     });
 
  
-        IERC20(Currency.unwrap(currency0)).approve(address(lpRouter), type(uint256).max);
-        IERC20(Currency.unwrap(currency1)).approve(address(lpRouter), type(uint256).max);
+    //     IERC20(Currency.unwrap(currency0)).approve(address(lpRouter), type(uint256).max);
+    //     IERC20(Currency.unwrap(currency1)).approve(address(lpRouter), type(uint256).max);
 
-        // optionally specify hookData if the hook depends on arbitrary data for liquidity modification
-        bytes memory hookData = new bytes(0);
+    //     // optionally specify hookData if the hook depends on arbitrary data for liquidity modification
+    //     bytes memory hookData = new bytes(0);
 
-        // logging the pool ID
-        PoolId id = PoolIdLibrary.toId(pool);
-        bytes32 idBytes = PoolId.unwrap(id);
-        console.log("Pool ID Below");
-        console.logBytes32(bytes32(idBytes));
+    //     // logging the pool ID
+    //     PoolId id = PoolIdLibrary.toId(pool);
+    //     bytes32 idBytes = PoolId.unwrap(id);
+    //     console.log("Pool ID Below");
+    //     console.logBytes32(bytes32(idBytes));
+    //    IERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
+    //     IERC20(Currency.unwrap(currency1)).approve(address(twammHook), type(uint256).max);
 
-        //balance of currecny0
+    //     //balance of currecny0
 
-        console.log("Balance of currency0", currency0.balanceOf(address(this)));
-        console.log("Balance of currency1", currency1.balanceOf(address(this)));
+    //     console.log("Balance of currency0", currency0.balanceOf(address(this)));
+    //     console.log("Balance of currency1", currency1.balanceOf(address(this)));
         // Initialize a pool
     (key, ) = initPool(
         currency0,
@@ -105,7 +109,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         IPoolManager.ModifyLiquidityParams({
             tickLower: -60,
             tickUpper: 60,
-            liquidityDelta: 100 ether,
+            liquidityDelta: 1 ether,
             salt: bytes32(0)
         }),
         ZERO_BYTES
@@ -113,8 +117,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
 
 
-        token0.approve(address(twammHook), type(uint256).max);
-        token1.approve(address(twammHook), type(uint256).max);
+       
     }
 
     function test_TWAMMHook_InitiateBuyback() public {
