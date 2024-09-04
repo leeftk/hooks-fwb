@@ -12,7 +12,6 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 
-
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -27,7 +26,8 @@ contract TWAMMHook is BaseHook, Ownable {
     }
 
     mapping(PoolId => BuybackOrder) public buybackOrders;
-    mapping(PoolId=> uint256) public buybackAmounts;
+    mapping(PoolId => uint256) public buybackAmounts;
+    mapping(PoolId => uint256) public claimTokensSupply;
     address public immutable daoToken;
     address public daoTreasury;
     uint256 public maxBuybackDuration;
@@ -66,7 +66,10 @@ contract TWAMMHook is BaseHook, Ownable {
         });
     }
 
-    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration) external returns (PoolKey memory) {
+    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration)
+        external
+        returns (PoolKey memory)
+    {
         if (duration > maxBuybackDuration) revert DurationExceedsMaximum();
         PoolId poolId = key.toId();
         if (buybackOrders[poolId].totalAmount != 0) revert ExistingBuybackInProgress();
@@ -94,7 +97,7 @@ contract TWAMMHook is BaseHook, Ownable {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
-        if (order.totalAmount > 0 && block.timestamp < order.endTime) {
+        if (order.totalAmount > 0) {
             uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
             uint256 totalDuration = order.endTime - order.startTime;
             uint256 amountToBuy = (order.totalAmount * elapsedTime) / totalDuration;
@@ -132,6 +135,10 @@ contract TWAMMHook is BaseHook, Ownable {
         order.amountBought = 0;
 
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
+    }
+
+    function executeBuyback(PoolKey calldata key) external {
+        //exeSwap
     }
 
     function setDaoTreasury(address _newTreasury) external onlyOwner {

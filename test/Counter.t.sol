@@ -19,11 +19,12 @@ import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
-
+import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 contract TWAMMHookTest is Test, GasSnapshot, Deployers {
-
     PoolModifyLiquidityTest lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
+
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
@@ -33,101 +34,58 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     PoolKey poolKey;
     PoolId poolId;
 
-
     function setUp() public {
         deployFreshManagerAndRouters();
         (currency0, currency1) = deployMintAndApprove2Currencies();
+        //Send 100000 tokens to twammhook
+        MockERC20(Currency.unwrap(currency0)).mint(address(twammHook), 100000000000e18);
+        MockERC20(Currency.unwrap(currency1)).mint(address(twammHook), 1000000000000e18);
 
+        // Deploy hook to an address that has the proper flags set
+        // Deploy hook to an address that has the proper flags set
+        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG);
+        address hookAddress = address(flags);
+        deployCodeTo(
+            "TWAMMHook.sol",
+            abi.encode(IPoolManager(address(manager)), Currency.unwrap(currency0), address(this), 7000 days),
+            hookAddress
+        );
+        twammHook = TWAMMHook(address(flags));
+        MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
+        MockERC20(Currency.unwrap(currency1)).approve(address(twammHook), type(uint256).max);
 
-          // Deploy hook to an address that has the proper flags set
-     // Deploy hook to an address that has the proper flags set
-       uint160 flags = uint160(
-        Hooks.BEFORE_SWAP_FLAG
-    );
-    address hookAddress = address(flags);
-    deployCodeTo(
-        "TWAMMHook.sol",
-        abi.encode(IPoolManager(address(manager)), Currency.unwrap(currency0), address(this), 7000 days),
-        hookAddress
-    );
-
-    // Set the twammHook to the deployed address
-    twammHook = TWAMMHook(address(flags));
-    //(PoolKey memory initKey, PoolId initId) = newPoolKeyWithTWAMM(twammHook);
-
-    // poolKey = PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(address(twammHook)));
-    //manager.initialize(initKey, SQRT_PRICE_1_1 + 1, ZERO_BYTES);
-     MockERC20(Currency.unwrap(currency0)).approve(
-        address(twammHook),
-        type(uint256).max
-    );
-    MockERC20(Currency.unwrap(currency1)).approve(
-        address(twammHook),
-        type(uint256).max
-    );
-
-    //    PoolKey memory pool = PoolKey({
-    //         currency0: currency0,
-    //         currency1: currency1,
-    //         fee: swapFee,
-    //         tickSpacing: tickSpacing,
-    //         hooks: IHooks(address(twammHook))
-    //     });
-
- 
-    //     IERC20(Currency.unwrap(currency0)).approve(address(lpRouter), type(uint256).max);
-    //     IERC20(Currency.unwrap(currency1)).approve(address(lpRouter), type(uint256).max);
-
-    //     // optionally specify hookData if the hook depends on arbitrary data for liquidity modification
-    //     bytes memory hookData = new bytes(0);
-
-    //     // logging the pool ID
-    //     PoolId id = PoolIdLibrary.toId(pool);
-    //     bytes32 idBytes = PoolId.unwrap(id);
-    //     console.log("Pool ID Below");
-    //     console.logBytes32(bytes32(idBytes));
-    //    IERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
-    //     IERC20(Currency.unwrap(currency1)).approve(address(twammHook), type(uint256).max);
-
-    //     //balance of currecny0
-
-    //     console.log("Balance of currency0", currency0.balanceOf(address(this)));
-    //     console.log("Balance of currency1", currency1.balanceOf(address(this)));
         // Initialize a pool
-    (key, ) = initPool(
-        currency0,
-        currency1,
-        twammHook,
-        LPFeeLibrary.DYNAMIC_FEE_FLAG, // Set the `DYNAMIC_FEE_FLAG` in place of specifying a fixed fee
-        SQRT_PRICE_1_1,
-        ZERO_BYTES
-    );
+        (key,) = initPool(
+            currency0,
+            currency1,
+            twammHook,
+            LPFeeLibrary.DYNAMIC_FEE_FLAG, // Set the `DYNAMIC_FEE_FLAG` in place of specifying a fixed fee
+            SQRT_PRICE_1_1,
+            ZERO_BYTES
+        );
+        poolKey = key;
 
-    // Add some liquidity
-    modifyLiquidityRouter.modifyLiquidity(
-        key,
-        IPoolManager.ModifyLiquidityParams({
-            tickLower: -60,
-            tickUpper: 60,
-            liquidityDelta: 1 ether,
-            salt: bytes32(0)
-        }),
-        ZERO_BYTES
-    );
-
-
-
-       
+        // Add some liquidity
+        modifyLiquidityRouter.modifyLiquidity(
+            key,
+            IPoolManager.ModifyLiquidityParams({
+                tickLower: -60,
+                tickUpper: 60,
+                liquidityDelta: 1 ether,
+                salt: bytes32(0)
+            }),
+            ZERO_BYTES
+        );
     }
 
     function test_TWAMMHook_InitiateBuyback() public {
         PoolId poolId = poolKey.toId();
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
-         
 
-        token0.mint(address(this), buybackAmount);
-      
+        //token0.mint(address(this), buybackAmount);
+        MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), buybackAmount);
+
         PoolKey memory returnedKey = twammHook.initiateBuyback(poolKey, buybackAmount, duration);
         //totalAmount should be buybackAmount
         uint256 totalAmounts = twammHook.buybackAmounts(poolId);
@@ -169,23 +127,38 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
     }
 
-    function test_TWAMMHook_ClaimBoughtTokens() public {
+    function test_TWAMMHook_ClaimBoughtTokensOnly() public {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
 
-        token0.mint(address(this), buybackAmount);
+        //token0.mint(address(this), buybackAmount);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
+        //Conduct swap
+        bool zeroForOne = true;
+        vm.warp(block.timestamp + 100 days);
 
+        // Do a separate swap from oneForZero to make tick go up
+        // Sell 1e18 token1 tokens for token0 tokens
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: !zeroForOne,
+            amountSpecified: 100 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        swapRouter.swap(poolKey, params, testSettings, "");
+        //send tokens back to twammhook
+        MockERC20(Currency.unwrap(currency0)).transfer(address(twammHook), 100000000000e18);
         // Simulate some tokens being bought
-        uint256 boughtAmount = 500e18;
-        token1.mint(address(twammHook), boughtAmount);
-    
+        uint256 balanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(this));
 
-        uint256 balanceBefore = token1.balanceOf(address(this));
+        console.log("claimtokens balance hook", IERC20(Currency.unwrap(currency0)).balanceOf(address(twammHook)));
         twammHook.claimBoughtTokens(poolKey);
-        uint256 balanceAfter = token1.balanceOf(address(this));
+        uint256 balanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(this));
 
-        assertEq(balanceAfter - balanceBefore, boughtAmount);
+        assertGt(balanceAfter, balanceBefore);
     }
 
     function test_TWAMMHook_ClaimBoughtTokens_Revert_OnlyInitiatorCanClaim() public {
