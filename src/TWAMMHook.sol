@@ -11,6 +11,7 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeS
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
+import {console} from "forge-std/console.sol";
 
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
@@ -137,8 +138,6 @@ contract TWAMMHook is BaseHook, Ownable {
                 order.amountBought += amountToBuy;
                 order.lastExecutionTime = block.timestamp;
 
-                
-
                 // Return the amount to buy as a delta
                 return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
             }
@@ -202,14 +201,17 @@ contract TWAMMHook is BaseHook, Ownable {
         }
         
         uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
-        uint256 totalDuration = order.endTime - order.startTime;
-        uint256 executionInterval = totalDuration / 1 hours;
+        uint256 totalDuration = order.endTime - order.startTime;// Execute 100 times over the total duration
+        uint256 executionInterval = totalDuration * 1e18 / order.totalAmount;
+
+        console.log("executionInterval", executionInterval);
+        console.log("elapsedTime", elapsedTime);
         
-        if (elapsedTime >= executionInterval) {
-            return 0;
+        if (executionInterval > elapsedTime) {
+            return executionInterval - elapsedTime;
         }
-        
-        return executionInterval - elapsedTime;
+        //// this should be the time remaing until the next execution which equals the
+        return elapsedTime % executionInterval;
     }
 
     function getBuybackProgress(PoolKey calldata key) external view returns (uint256 percentComplete) {
@@ -219,8 +221,9 @@ contract TWAMMHook is BaseHook, Ownable {
         if (order.totalAmount == 0) {
             return 0;
         }
-        
-        return (order.amountBought * order.totalAmount) / 1e18;
+
+
+        return (order.amountBought * 1e18 / order.totalAmount);
 
     }
 }

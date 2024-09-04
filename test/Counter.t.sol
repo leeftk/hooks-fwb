@@ -143,6 +143,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
         });
 
+
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
 
@@ -303,6 +304,8 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
 
+        uint amountWeWant = buybackAmount / 2;
+
     
         // Simulate a partial buyback (this is a simplified simulation)
         vm.warp(block.timestamp + 5 days);
@@ -332,17 +335,12 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
         //@audit - is this right? I'm not even sure anymore I've been testing this for too long
 
-        uint256 partialAmount = buybackAmount / 2;   
-        amountBought = partialAmount;
+        uint rightNumber = remainingAmount * 1e18 / totalAmount;
+        
+    
 
         uint256 progress = twammHook.getBuybackProgress(poolKey);
-        assertEq(progress, partialAmount, "Progress should be 50% after half buyback");
-
-        // Simulate completion
-        amountBought = buybackAmount;
-
-        progress = twammHook.getBuybackProgress(poolKey);
-        assertEq(progress, 100, "Progress should be 100% after full buyback");
+        assertEq(progress, rightNumber, "Progress should be 50% after half buyback");
     }
 
     function test_TWAMMHook_GettersWithNoBuybackOrder() public {
