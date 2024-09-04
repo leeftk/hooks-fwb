@@ -16,8 +16,14 @@ import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {MockERC20} from "../test/utils/MockERC20.sol";
 import {Deployers} from "v4-core/test/utils/Deployers.sol";
 import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {PoolModifyLiquidityTest} from "v4-core/src/test/PoolModifyLiquidityTest.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
+import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
+
 
 contract TWAMMHookTest is Test, GasSnapshot, Deployers {
+
+    PoolModifyLiquidityTest lpRouter = new PoolModifyLiquidityTest(IPoolManager(address(manager)));
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
@@ -27,12 +33,14 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     PoolKey poolKey;
     PoolId poolId;
 
+
     function setUp() public {
         deployFreshManagerAndRouters();
         (Currency currency0, Currency currency1) = deployMintAndApprove2Currencies();
 
-        token0 = MockERC20(Currency.unwrap(currency0));
-        token1 = MockERC20(Currency.unwrap(currency1));
+
+        uint24 swapFee = 4000; // 0.40% fee tier
+        int24 tickSpacing = 10;
 
           // Deploy hook to an address that has the proper flags set
      // Deploy hook to an address that has the proper flags set
@@ -44,7 +52,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     );
     deployCodeTo(
         "TWAMMHook.sol",
-        abi.encode(IPoolManager(address(manager)), address(token0), address(this), 7000 days),
+        abi.encode(IPoolManager(address(manager)), Currency.unwrap(currency0), address(this), 7000 days),
         address(flags)
     );
 
@@ -52,8 +60,58 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     twammHook = TWAMMHook(address(flags));
     (PoolKey memory initKey, PoolId initId) = newPoolKeyWithTWAMM(twammHook);
 
-    poolKey = PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(address(twammHook)));
+    // poolKey = PoolKey(Currency.wrap(address(token0)), Currency.wrap(address(token1)), 3000, 60, IHooks(address(twammHook)));
     manager.initialize(initKey, SQRT_PRICE_1_1 + 1, ZERO_BYTES);
+
+
+       PoolKey memory pool = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: swapFee,
+            tickSpacing: tickSpacing,
+            hooks: IHooks(address(twammHook))
+        });
+
+ 
+        IERC20(Currency.unwrap(currency0)).approve(address(lpRouter), type(uint256).max);
+        IERC20(Currency.unwrap(currency1)).approve(address(lpRouter), type(uint256).max);
+
+        // optionally specify hookData if the hook depends on arbitrary data for liquidity modification
+        bytes memory hookData = new bytes(0);
+
+        // logging the pool ID
+        PoolId id = PoolIdLibrary.toId(pool);
+        bytes32 idBytes = PoolId.unwrap(id);
+        console.log("Pool ID Below");
+        console.logBytes32(bytes32(idBytes));
+
+        //balance of currecny0
+
+        console.log("Balance of currency0", currency0.balanceOf(address(this)));
+        console.log("Balance of currency1", currency1.balanceOf(address(this)));
+        // Initialize a pool
+    (key, ) = initPool(
+        currency0,
+        currency1,
+        twammHook,
+        LPFeeLibrary.DYNAMIC_FEE_FLAG, // Set the `DYNAMIC_FEE_FLAG` in place of specifying a fixed fee
+        SQRT_PRICE_1_1,
+        ZERO_BYTES
+    );
+
+    // Add some liquidity
+    modifyLiquidityRouter.modifyLiquidity(
+        key,
+        IPoolManager.ModifyLiquidityParams({
+            tickLower: -60,
+            tickUpper: 60,
+            liquidityDelta: 100 ether,
+            salt: bytes32(0)
+        }),
+        ZERO_BYTES
+    );
+
+
 
         token0.approve(address(twammHook), type(uint256).max);
         token1.approve(address(twammHook), type(uint256).max);

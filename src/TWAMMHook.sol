@@ -12,6 +12,7 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 
+
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
