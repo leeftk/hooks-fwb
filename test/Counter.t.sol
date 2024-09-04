@@ -109,7 +109,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
     function test_TWAMMHook_InitiateBuybckRevertDurationExceedsMaximum() public {
         uint256 buybackAmount = 1000e18;
-        uint256 duration = 80000 days; // Exceeds the 7 days max duration
+        uint256 duration = 80000 days;
 
         vm.expectRevert(TWAMMHook.DurationExceedsMaximum.selector);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
@@ -159,6 +159,42 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         assertGt(balanceAfter, balanceBefore);
     }
 
+    function test_TWAMMHook_UpdateBuybackOrder() public {
+        PoolId poolId = poolKey.toId();
+        uint256 initialAmount = 1000e18;
+        uint256 initialDuration = 1 days;
+        
+        // Approve tokens
+        MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
+        
+        // Initiate buyback
+        twammHook.initiateBuyback(poolKey, initialAmount, initialDuration);
+        
+        // Prepare update parameters
+        uint256 newAmount = 1500e18;
+        uint256 newDuration = 2 days;
+        
+        // Update buyback order
+        twammHook.updateBuybackOrder(poolKey, newAmount, newDuration);
+        
+        // Check updated values
+          (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 startTime,
+            uint256 endTime,
+            uint256 lastExecutionTime
+        ) = twammHook.buybackOrders(poolId);
+
+        assertEq(totalAmount, newAmount, "Total amount not updated correctly");
+        assertEq(endTime, block.timestamp + newDuration, "End time not updated correctly");
+        assertEq(twammHook.buybackAmounts(poolKey.toId()), newAmount, "Buyback amount not updated correctly");
+        
+        // Check token transfer
+        assertEq(MockERC20(Currency.unwrap(currency0)).balanceOf(address(twammHook)), newAmount, "Hook balance not updated correctly");
+    }
+
     function test_TWAMMHook_ClaimBoughtTokens_Revert_OnlyInitiatorCanClaim() public {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
@@ -190,6 +226,153 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 newMaxDuration = 14 days;
         twammHook.setMaxBuybackDuration(newMaxDuration);
         assertEq(twammHook.maxBuybackDuration(), newMaxDuration);
+    }
+
+    function test_TWAMMHook_GetBuybackOrderDetails() public {
+        PoolId poolId = poolKey.toId();
+        uint256 buybackAmount = 1000e18;
+        uint256 duration = 1 days;
+
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration);
+
+        // Warp time to simulate some progress
+        vm.warp(block.timestamp + 12 hours);
+
+        (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 startTime,
+            uint256 endTime,
+            uint256 lastExecutionTime,
+            uint256 remainingTime,
+            uint256 totalDuration,
+            uint256 remainingAmount
+        ) = twammHook.getBuybackOrderDetails(poolKey);
+
+        assertEq(initiator, address(this), "Incorrect initiator");
+        assertEq(totalAmount, buybackAmount, "Incorrect total amount");
+        assertEq(amountBought, 0, "Incorrect amount bought"); // Assuming no swaps have occurred
+        assertEq(endTime - startTime, duration, "Incorrect duration");
+        assertEq(remainingTime, 12 hours, "Incorrect remaining time");
+        assertEq(totalDuration, duration, "Incorrect total duration");
+        assertEq(remainingAmount, buybackAmount, "Incorrect remaining amount");
+    }
+
+    function test_TWAMMHook_GetTimeUntilNextExecution() public {
+        PoolKey memory key = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: 3000,
+            tickSpacing: 60,
+            hooks: IHooks(address(twammHook))
+        });
+
+        twammHook.initiateBuyback(key, 1e21, 86400); // 1 day duration
+
+        // Check time remaining at the start
+        uint256 timeRemaining = twammHook.getTimeUntilNextExecution(key);
+        assertGt(timeRemaining, 0, "Time until next execution should be greater than 0 at start");
+        assertLe(timeRemaining, 86400, "Time until next execution should be less than or equal to total duration");
+
+        // Warp to middle of the buyback period
+        vm.warp(block.timestamp + 43200); // Half day
+
+        timeRemaining = twammHook.getTimeUntilNextExecution(key);
+        assertGt(timeRemaining, 0, "Time until next execution should be greater than 0 at midpoint");
+        assertLe(timeRemaining, 43200, "Time until next execution should be less than or equal to remaining duration");
+
+        // Warp to just before the end of the buyback period
+        vm.warp(block.timestamp + 43199); // 1 second before end
+
+        timeRemaining = twammHook.getTimeUntilNextExecution(key);
+        assertGt(timeRemaining, 0, "Time until next execution should be greater than 0 near end");
+        assertLe(timeRemaining, 1, "Time until next execution should be 1 second or less");
+
+        // Warp to after the buyback period
+        vm.warp(block.timestamp + 2);
+
+        timeRemaining = twammHook.getTimeUntilNextExecution(key);
+        assertEq(timeRemaining, 0, "Time until next execution should be 0 after buyback ends");
+    }
+
+    function test_TWAMMHook_GetBuybackProgress() public {
+        uint256 buybackAmount = 1000e18;
+        uint256 duration = 10 days;
+        bool zeroForOne = true;
+
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration);
+
+    
+        // Simulate a partial buyback (this is a simplified simulation)
+        vm.warp(block.timestamp + 5 days);
+
+        // Do a separate swap from oneForZero to make tick go up
+        // Sell 1e18 token1 tokens for token0 tokens
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: !zeroForOne,
+            amountSpecified: 100 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+        PoolSwapTest.TestSettings memory testSettings =
+            PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
+
+        swapRouter.swap(poolKey, params, testSettings, "");
+        (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 startTime,
+            uint256 endTime,
+            uint256 lastExecutionTime,
+            uint256 remainingTime,
+            uint256 totalDuration,
+            uint256 remainingAmount
+        ) = twammHook.getBuybackOrderDetails(poolKey);
+
+        //@audit - is this right? I'm not even sure anymore I've been testing this for too long
+
+        uint256 partialAmount = buybackAmount / 2;   
+        amountBought = partialAmount;
+
+        uint256 progress = twammHook.getBuybackProgress(poolKey);
+        assertEq(progress, partialAmount, "Progress should be 50% after half buyback");
+
+        // Simulate completion
+        amountBought = buybackAmount;
+
+        progress = twammHook.getBuybackProgress(poolKey);
+        assertEq(progress, 100, "Progress should be 100% after full buyback");
+    }
+
+    function test_TWAMMHook_GettersWithNoBuybackOrder() public {
+        (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 startTime,
+            uint256 endTime,
+            uint256 lastExecutionTime,
+            uint256 remainingTime,
+            uint256 totalDuration,
+            uint256 remainingAmount
+        ) = twammHook.getBuybackOrderDetails(poolKey);
+
+        assertEq(initiator, address(0), "Initiator should be zero address");
+        assertEq(totalAmount, 0, "Total amount should be 0");
+        assertEq(amountBought, 0, "Amount bought should be 0");
+        assertEq(startTime, 0, "Start time should be 0");
+        assertEq(endTime, 0, "End time should be 0");
+        assertEq(lastExecutionTime, 0, "Last execution time should be 0");
+        assertEq(remainingTime, 0, "Remaining time should be 0");
+        assertEq(totalDuration, 0, "Total duration should be 0");
+        assertEq(remainingAmount, 0, "Remaining amount should be 0");
+
+        uint256 timeUntilNextExecution = twammHook.getTimeUntilNextExecution(poolKey);
+        assertEq(timeUntilNextExecution, 0, "Time until next execution should be 0");
+
+        uint256 progress = twammHook.getBuybackProgress(poolKey);
+        assertEq(progress, 0, "Progress should be 0");
     }
 
     function newPoolKeyWithTWAMM(IHooks hooks) public returns (PoolKey memory, PoolId) {

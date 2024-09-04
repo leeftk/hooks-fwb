@@ -16,6 +16,9 @@ contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
+    event BuybackInitiated(PoolId poolId, uint256 totalAmount, uint256 duration);
+    event BuybackOrderUpdated(PoolId poolId, uint256 newTotalAmount, uint256 newDuration);
+
     struct BuybackOrder {
         address initiator;
         uint256 totalAmount;
@@ -86,7 +89,33 @@ contract TWAMMHook is BaseHook, Ownable {
 
         ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
 
-        return key;
+  
+        emit BuybackInitiated(poolId, totalAmount, duration);
+     return key;
+    }
+
+    function updateBuybackOrder(PoolKey calldata key, uint256 newTotalAmount, uint256 newDuration) external {
+        PoolId poolId = key.toId();
+        BuybackOrder storage order = buybackOrders[poolId];
+
+        if (msg.sender != order.initiator) revert UnauthorizedCaller();
+        if (newDuration > maxBuybackDuration) revert DurationExceedsMaximum();
+
+        uint256 remainingAmount = order.totalAmount - order.amountBought;
+        if (newTotalAmount < order.amountBought) revert("New total amount must be greater than amount already bought");
+
+        // Transfer additional funds if new total amount is greater
+        if (newTotalAmount > order.totalAmount) {
+            uint256 additionalAmount = newTotalAmount - order.totalAmount;
+            ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), additionalAmount);
+        }
+
+        // Update the order
+        order.totalAmount = newTotalAmount;
+        order.endTime = block.timestamp + newDuration;
+        buybackAmounts[poolId] = newTotalAmount - order.amountBought;
+
+        emit BuybackOrderUpdated(poolId, newTotalAmount, newDuration);
     }
 
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
@@ -98,15 +127,17 @@ contract TWAMMHook is BaseHook, Ownable {
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (order.totalAmount > 0) {
-            uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
+            uint256 elapsedTime = block.timestamp - order.startTime;
             uint256 totalDuration = order.endTime - order.startTime;
             uint256 amountToBuy = (order.totalAmount * elapsedTime) / totalDuration;
 
             if (amountToBuy > 0) {
                 // Execute partial buyback
-                // Note: This is a simplified version. You'll need to implement the actual swap logic here.
+                // Note: This is a simplified version. Weed to implement the actual swap logic here.
                 order.amountBought += amountToBuy;
                 order.lastExecutionTime = block.timestamp;
+
+                
 
                 // Return the amount to buy as a delta
                 return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
@@ -115,7 +146,6 @@ contract TWAMMHook is BaseHook, Ownable {
 
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
-
 
     function claimBoughtTokens(PoolKey calldata key) external {
         PoolId poolId = key.toId();
@@ -130,15 +160,67 @@ contract TWAMMHook is BaseHook, Ownable {
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
     }
 
-    function executeBuyback(PoolKey calldata key) external {
-        //exeSwap
-    }
-
     function setDaoTreasury(address _newTreasury) external onlyOwner {
         daoTreasury = _newTreasury;
     }
 
     function setMaxBuybackDuration(uint256 _newMaxDuration) external onlyOwner {
         maxBuybackDuration = _newMaxDuration;
+    }
+
+    function getBuybackOrderDetails(PoolKey calldata key) external view returns (
+        address initiator,
+        uint256 totalAmount,
+        uint256 amountBought,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 lastExecutionTime,
+        uint256 remainingTime,
+        uint256 totalDuration,
+        uint256 remainingAmount
+    ) {
+        PoolId poolId = key.toId();
+        BuybackOrder memory order = buybackOrders[poolId];
+        
+        initiator = order.initiator;
+        totalAmount = order.totalAmount;
+        amountBought = order.amountBought;
+        startTime = order.startTime;
+        endTime = order.endTime;
+        lastExecutionTime = order.lastExecutionTime;
+        remainingTime = order.endTime > block.timestamp ? order.endTime - block.timestamp : 0;
+        totalDuration = order.endTime - order.startTime;
+        remainingAmount = order.totalAmount - order.amountBought;
+    }
+
+    function getTimeUntilNextExecution(PoolKey calldata key) external view returns (uint256) {
+        PoolId poolId = key.toId();
+        BuybackOrder storage order = buybackOrders[poolId];
+        
+        if (order.totalAmount == 0 || block.timestamp >= order.endTime) {
+            return 0;
+        }
+        
+        uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
+        uint256 totalDuration = order.endTime - order.startTime;
+        uint256 executionInterval = totalDuration / 1 hours;
+        
+        if (elapsedTime >= executionInterval) {
+            return 0;
+        }
+        
+        return executionInterval - elapsedTime;
+    }
+
+    function getBuybackProgress(PoolKey calldata key) external view returns (uint256 percentComplete) {
+        PoolId poolId = key.toId();
+        BuybackOrder storage order = buybackOrders[poolId];
+        
+        if (order.totalAmount == 0) {
+            return 0;
+        }
+        
+        return (order.amountBought * order.totalAmount) / 1e18;
+
     }
 }
