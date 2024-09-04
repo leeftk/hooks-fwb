@@ -116,13 +116,6 @@ contract TWAMMHook is BaseHook, Ownable {
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
-    // function afterSwap(address, PoolKey calldata, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
-    //     external
-    //     override
-    //     returns (bytes4, int128)
-    // {
-    //     return (BaseHook.afterSwap.selector, 0);
-    // }
 
     function claimBoughtTokens(PoolKey calldata key) external {
         PoolId poolId = key.toId();

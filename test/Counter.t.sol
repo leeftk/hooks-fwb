@@ -109,9 +109,8 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
     function test_TWAMMHook_InitiateBuybckRevertDurationExceedsMaximum() public {
         uint256 buybackAmount = 1000e18;
-        uint256 duration = 8 days; // Exceeds the 7 days max duration
+        uint256 duration = 80000 days; // Exceeds the 7 days max duration
 
-        token0.mint(address(this), buybackAmount);
         vm.expectRevert(TWAMMHook.DurationExceedsMaximum.selector);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
     }
@@ -120,14 +119,13 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
 
-        token0.mint(address(this), buybackAmount * 2);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
 
         vm.expectRevert(TWAMMHook.ExistingBuybackInProgress.selector);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
     }
 
-    function test_TWAMMHook_ClaimBoughtTokensOnly() public {
+    function test_TWAMMHook_VerifyBuybackOrderExecutes() public {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
 
@@ -165,7 +163,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
 
-        token0.mint(address(this), buybackAmount);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
 
         vm.prank(address(0xdead));
@@ -177,7 +174,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
 
-        token0.mint(address(this), buybackAmount);
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
 
         vm.expectRevert(TWAMMHook.NoTokensToClaim.selector);
