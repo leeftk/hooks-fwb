@@ -143,7 +143,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
         });
 
-
         PoolSwapTest.TestSettings memory testSettings =
             PoolSwapTest.TestSettings({takeClaims: false, settleUsingBurn: false});
 
@@ -164,22 +163,22 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         PoolId poolId = poolKey.toId();
         uint256 initialAmount = 1000e18;
         uint256 initialDuration = 1 days;
-        
+
         // Approve tokens
         MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
-        
+
         // Initiate buyback
         twammHook.initiateBuyback(poolKey, initialAmount, initialDuration);
-        
+
         // Prepare update parameters
         uint256 newAmount = 1500e18;
         uint256 newDuration = 2 days;
-        
+
         // Update buyback order
         twammHook.updateBuybackOrder(poolKey, newAmount, newDuration);
-        
+
         // Check updated values
-          (
+        (
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
@@ -191,9 +190,13 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         assertEq(totalAmount, newAmount, "Total amount not updated correctly");
         assertEq(endTime, block.timestamp + newDuration, "End time not updated correctly");
         assertEq(twammHook.buybackAmounts(poolKey.toId()), newAmount, "Buyback amount not updated correctly");
-        
+
         // Check token transfer
-        assertEq(MockERC20(Currency.unwrap(currency0)).balanceOf(address(twammHook)), newAmount, "Hook balance not updated correctly");
+        assertEq(
+            MockERC20(Currency.unwrap(currency0)).balanceOf(address(twammHook)),
+            newAmount,
+            "Hook balance not updated correctly"
+        );
     }
 
     function test_TWAMMHook_ClaimBoughtTokens_Revert_OnlyInitiatorCanClaim() public {
@@ -304,9 +307,8 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
         twammHook.initiateBuyback(poolKey, buybackAmount, duration);
 
-        uint amountWeWant = buybackAmount / 2;
+        uint256 amountWeWant = buybackAmount / 2;
 
-    
         // Simulate a partial buyback (this is a simplified simulation)
         vm.warp(block.timestamp + 5 days);
 
@@ -335,9 +337,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
         //@audit - is this right? I'm not even sure anymore I've been testing this for too long
 
-        uint rightNumber = remainingAmount * 1e18 / totalAmount;
-        
-    
+        uint256 rightNumber = remainingAmount * 1e18 / totalAmount;
 
         uint256 progress = twammHook.getBuybackProgress(poolKey);
         assertEq(progress, rightNumber, "Progress should be 50% after half buyback");

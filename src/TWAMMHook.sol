@@ -105,9 +105,8 @@ contract TWAMMHook is BaseHook, Ownable {
 
         ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
 
-  
         emit BuybackInitiated(poolId, totalAmount, duration);
-     return key;
+        return key;
     }
 
     function updateBuybackOrder(PoolKey calldata key, uint256 newTotalAmount, uint256 newDuration) external {
@@ -182,20 +181,24 @@ contract TWAMMHook is BaseHook, Ownable {
         maxBuybackDuration = _newMaxDuration;
     }
 
-    function getBuybackOrderDetails(PoolKey calldata key) external view returns (
-        address initiator,
-        uint256 totalAmount,
-        uint256 amountBought,
-        uint256 startTime,
-        uint256 endTime,
-        uint256 lastExecutionTime,
-        uint256 remainingTime,
-        uint256 totalDuration,
-        uint256 remainingAmount
-    ) {
+    function getBuybackOrderDetails(PoolKey calldata key)
+        external
+        view
+        returns (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 startTime,
+            uint256 endTime,
+            uint256 lastExecutionTime,
+            uint256 remainingTime,
+            uint256 totalDuration,
+            uint256 remainingAmount
+        )
+    {
         PoolId poolId = key.toId();
         BuybackOrder memory order = buybackOrders[poolId];
-        
+
         initiator = order.initiator;
         totalAmount = order.totalAmount;
         amountBought = order.amountBought;
@@ -210,18 +213,18 @@ contract TWAMMHook is BaseHook, Ownable {
     function getTimeUntilNextExecution(PoolKey calldata key) external view returns (uint256) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
-        
+
         if (order.totalAmount == 0 || block.timestamp >= order.endTime) {
             return 0;
         }
-        
+
         uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
-        uint256 totalDuration = order.endTime - order.startTime;// Execute 100 times over the total duration
+        uint256 totalDuration = order.endTime - order.startTime; // Execute 100 times over the total duration
         uint256 executionInterval = totalDuration * 1e18 / order.totalAmount;
 
         console.log("executionInterval", executionInterval);
         console.log("elapsedTime", elapsedTime);
-        
+
         if (executionInterval > elapsedTime) {
             return executionInterval - elapsedTime;
         }
@@ -232,12 +235,11 @@ contract TWAMMHook is BaseHook, Ownable {
     function getBuybackProgress(PoolKey calldata key) external view returns (uint256 percentComplete) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
-        
+
         if (order.totalAmount == 0) {
             return 0;
         }
 
         return (order.amountBought * 1e18 / order.totalAmount);
-
     }
 }
