@@ -271,6 +271,10 @@ contract TWAMMHook is BaseHook, Ownable {
         return elapsedTime % executionInterval;
     }
 
+    /// @notice Calculates the progress of a buyback order as a percentage
+    /// @dev Computes the percentage of completed intervals in a buyback order
+    /// @param key The PoolKey for the pool where the buyback is occurring
+    /// @return percentComplete The percentage of the buyback that has been completed (0-100)
     function getBuybackProgress(PoolKey calldata key) external view returns (uint256 percentComplete) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
@@ -278,18 +282,23 @@ contract TWAMMHook is BaseHook, Ownable {
         if (order.totalAmount == 0) {
             return 0;
         }
-        ////total amount of interval by findinng the total duration and dividing by the execution interval  
-        ////time elapsed is the time from the start of the buyback to the current time
-        ////remainder is the time from the last execution to the current time
-        //// totaleAmount = 10000 executionInterval = 10
-        /// totalAmountOfIntervals = 10000 / 100 = 100
-        ////time elapsed intervals is the time elapsed divided by the execution interval
-        ////percent complete is the time elapsed intervals divided by the total amount of intervals times 100 to get a percentage
+        // Total intervals in the buyback period
         uint256 totalAmountOfIntervals = (order.endTime - order.startTime) / order.executionInterval;
-        uint256 timeElapsed = block.timestamp - order.startTime;
-        uint256 remainder = timeElapsed % order.executionInterval;
-        uint256 timeElapsedIntervals = timeElapsed - remainder / order.executionInterval;
 
+        // Time elapsed since buyback start
+        uint256 timeElapsed = block.timestamp - order.startTime;
+
+        // Remainder time not forming a complete interval
+        uint256 remainder = timeElapsed % order.executionInterval;
+
+        // Number of completed intervals
+        uint256 timeElapsedIntervals = (timeElapsed - remainder) / order.executionInterval;
+
+        // Calculate progress percentage
+        // Example: totalAmount = 10000, executionInterval = 10
+        // totalAmountOfIntervals = 10000 / 10 = 1000
+        // If 250 intervals have passed:
+        // percentComplete = (250 * 100) / 1000 = 25%
         uint256 percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
 
         return percentComplete;
