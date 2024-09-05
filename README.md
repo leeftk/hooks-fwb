@@ -1,134 +1,70 @@
-# v4-template
-### **A template for writing Uniswap v4 Hooks 🦄**
+# TWAMMHook - Time-Weighted Average Market Maker Hook for Uniswap v4
 
-[`Use this Template`](https://github.com/uniswapfoundation/v4-template/generate)
+## Overview
 
-1. The example hook [Counter.sol](src/Counter.sol) demonstrates the `beforeSwap()` and `afterSwap()` hooks
-2. The test template [Counter.t.sol](test/Counter.t.sol) preconfigures the v4 pool manager, test tokens, and test liquidity.
+TWAMMHook is a Uniswap v4 Hook designed to facilitate automated, time-weighted token buybacks for DAOs. It allows DAOs to initiate and manage buyback orders that execute gradually over a specified period, helping to reduce market impact and provide more predictable buying pressure.
 
-<details>
-<summary>Updating to v4-template:latest</summary>
+## Key Features
 
-This template is actively maintained -- you can update the v4 dependencies, scripts, and helpers: 
-```bash
-git remote add template https://github.com/uniswapfoundation/v4-template
-git fetch template
-git merge template/main <BRANCH> --allow-unrelated-histories
-```
+- Initiate time-weighted buyback orders
+- Update existing buyback orders
+- Automatic execution of partial buybacks during swaps
+- Claim bought tokens by the initiator
+- View detailed buyback order information and progress
 
-</details>
+## How It Works
 
----
+1. A DAO initiates a buyback order, specifying the total amount and duration.
+2. The hook calculates and executes partial buybacks during regular swap operations in the pool.
+3. Buybacks are spread out over the specified duration to achieve a time-weighted average price.
+4. The initiator can claim the bought tokens once the buyback is complete or partially complete.
 
-## Check Forge Installation
-*Ensure that you have correctly installed Foundry (Forge) and that it's up to date. You can update Foundry by running:*
+## Technical Specifications
 
-```
-foundryup
-```
+1. Contract Structure:
+   - Inherits from BaseHook and Ownable
+   - Implements the beforeSwap hook
 
-## Set up
+2. Key Components:
+   - BuybackOrder struct: Stores details of each buyback order
+   - Mappings: Track buyback orders, amounts, and claim token supply
+   - State variables: DAO token address, treasury address, max buyback duration
 
-*requires [foundry](https://book.getfoundry.sh)*
+3. Core Functionality:
+   - initiateBuyback: Starts a new buyback order
+   - updateBuybackOrder: Modifies an existing buyback order
+   - beforeSwap: Executes partial buybacks during swaps
+   - claimBoughtTokens: Allows initiators to claim purchased tokens
 
-```
-forge install
-forge test
-```
+4. Time-Weighted Execution:
+   - Calculates buyback amounts based on elapsed time
+   - Executes partial buybacks during swap operations
 
-### Local Development (Anvil)
+5. Access Control:
+   - Ownable functions for treasury and duration updates
+   - Initiator-specific functions for order management and token claiming
 
-Other than writing unit tests (recommended!), you can only deploy & test hooks on [anvil](https://book.getfoundry.sh/anvil/)
+6. View Functions:
+   - getBuybackOrderDetails: Retrieves comprehensive order information
+   - getTimeUntilNextExecution: Calculates time until next buyback execution
+   - getBuybackProgress: Provides completion percentage of buyback order
 
-```bash
-# start anvil, a local EVM chain
-anvil
+7. Error Handling:
+   - Custom error messages for various failure scenarios
 
-# in a new terminal
-forge script script/Anvil.s.sol \
-    --rpc-url http://localhost:8545 \
-    --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-    --broadcast
-```
+8. Events:
+   - BuybackInitiated and BuybackOrderUpdated for logging key actions
 
-<details>
-<summary><h3>Testnets</h3></summary>
+This Hook provides a flexible and gas-efficient mechanism for DAOs to perform automated, time-weighted token buybacks within the Uniswap v4 ecosystem.
 
-NOTE: 11/21/2023, the Goerli deployment is out of sync with the latest v4. **It is recommend to use local testing instead**
+## Usage
 
-~~For testing on Goerli Testnet the Uniswap Foundation team has deployed a slimmed down version of the V4 contract (due to current contract size limits) on the network.~~
+[Include basic usage instructions or link to more detailed documentation]
 
-~~The relevant addresses for testing on Goerli are the ones below~~
+## Development and Testing
 
-```bash
-POOL_MANAGER = 0x0
-POOL_MODIFY_POSITION_TEST = 0x0
-SWAP_ROUTER = 0x0
-```
+[Include information on how to set up the development environment, run tests, etc.]
 
-Update the following command with your own private key:
+## License
 
-```
-forge script script/00_Counter.s.sol \
---rpc-url https://rpc.ankr.com/eth_goerli \
---private-key [your_private_key_on_goerli_here] \
---broadcast
-```
-
-### *Deploying your own Tokens For Testing*
-
-Because V4 is still in testing mode, most networks don't have liquidity pools live on V4 testnets. We recommend launching your own test tokens and expirementing with them that. We've included in the templace a Mock UNI and Mock USDC contract for easier testing. You can deploy the contracts and when you do you'll have 1 million mock tokens to test with for each contract. See deployment commands below
-
-```
-forge create script/mocks/mUNI.sol:MockUNI \
---rpc-url [your_rpc_url_here] \
---private-key [your_private_key_on_goerli_here]
-```
-
-```
-forge create script/mocks/mUSDC.sol:MockUSDC \
---rpc-url [your_rpc_url_here] \
---private-key [your_private_key_on_goerli_here]
-```
-
-</details>
-
----
-
-<details>
-<summary><h2>Troubleshooting</h2></summary>
-
-
-
-### *Permission Denied*
-
-When installing dependencies with `forge install`, Github may throw a `Permission Denied` error
-
-Typically caused by missing Github SSH keys, and can be resolved by following the steps [here](https://docs.github.com/en/github/authenticating-to-github/connecting-to-github-with-ssh) 
-
-Or [adding the keys to your ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent#adding-your-ssh-key-to-the-ssh-agent), if you have already uploaded SSH keys
-
-### Hook deployment failures
-
-Hook deployment failures are caused by incorrect flags or incorrect salt mining
-
-1. Verify the flags are in agreement:
-    * `getHookCalls()` returns the correct flags
-    * `flags` provided to `HookMiner.find(...)`
-2. Verify salt mining is correct:
-    * In **forge test**: the *deploye*r for: `new Hook{salt: salt}(...)` and `HookMiner.find(deployer, ...)` are the same. This will be `address(this)`. If using `vm.prank`, the deployer will be the pranking address
-    * In **forge script**: the deployer must be the CREATE2 Proxy: `0x4e59b44847b379578588920cA78FbF26c0B4956C`
-        * If anvil does not have the CREATE2 deployer, your foundry may be out of date. You can update it with `foundryup`
-
-</details>
-
----
-
-Additional resources:
-
-[v4-periphery](https://github.com/uniswap/v4-periphery) contains advanced hook implementations that serve as a great reference
-
-[v4-core](https://github.com/uniswap/v4-core)
-
-[v4-by-example](https://v4-by-example.org)
-
+This project is licensed under the MIT License.

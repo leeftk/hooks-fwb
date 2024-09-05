@@ -1,4 +1,5 @@
-// SPDX-License-Identifier: MIT
+ // SPDX-License-Identifier: MIT
+
 pragma solidity ^0.8.24;
 
 import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
@@ -30,8 +31,9 @@ contract TWAMMHook is BaseHook, Ownable {
         uint256 startTime;
         uint256 endTime;
         uint256 lastExecutionTime;
+        uint256 executionInterval;
     }
-
+ 
     mapping(PoolId => BuybackOrder) public buybackOrders;
     mapping(PoolId => uint256) public buybackAmounts;
     mapping(PoolId => uint256) public claimTokensSupply;
@@ -44,12 +46,13 @@ contract TWAMMHook is BaseHook, Ownable {
     error OnlyInitiatorCanClaim();
     error NoTokensToClaim();
     error UnauthorizedCaller();
-
+    error IntervalDoesNotDivideDuration();
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
     /// @param _daoTreasury The address of the DAO's treasury
     /// @param _maxBuybackDuration The maximum duration allowed for buyback orders
+
     constructor(IPoolManager _poolManager, address _daoToken, address _daoTreasury, uint256 _maxBuybackDuration)
         BaseHook(_poolManager)
         Ownable(msg.sender)
@@ -85,10 +88,11 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @param totalAmount The total amount of tokens to buy back
     /// @param duration The duration over which the buyback should occur
     /// @return The PoolKey of the initiated buyback
-    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration)
+    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval)
         external
         returns (PoolKey memory)
     {
+        if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();
         if (duration > maxBuybackDuration) revert DurationExceedsMaximum();
         PoolId poolId = key.toId();
         if (buybackOrders[poolId].totalAmount != 0) revert ExistingBuybackInProgress();
@@ -99,16 +103,22 @@ contract TWAMMHook is BaseHook, Ownable {
             amountBought: 0,
             startTime: block.timestamp,
             endTime: block.timestamp + duration,
-            lastExecutionTime: block.timestamp
+            lastExecutionTime: block.timestamp,
+            executionInterval: executionInterval
         });
         buybackAmounts[poolId] = totalAmount;
 
         ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
 
         emit BuybackInitiated(poolId, totalAmount, duration);
+
         return key;
     }
 
+    /// @notice Updates an existing buyback order
+    /// @param key The PoolKey for the pool where the buyback is occurring
+    /// @param newTotalAmount The new total amount for the buyback
+    /// @param newDuration The new duration for the buyback
     function updateBuybackOrder(PoolKey calldata key, uint256 newTotalAmount, uint256 newDuration) external {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
@@ -133,6 +143,11 @@ contract TWAMMHook is BaseHook, Ownable {
         emit BuybackOrderUpdated(poolId, newTotalAmount, newDuration);
     }
 
+    /// @notice Executes partial buybacks during swap operations
+    /// @dev This function is called by the Uniswap v4 pool before each swap
+    /// @param key The PoolKey for the pool where the swap is occurring
+    /// @param params The swap parameters
+    /// @return The selector of this function, the swap delta, and the fee
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
         external
         override
@@ -142,15 +157,19 @@ contract TWAMMHook is BaseHook, Ownable {
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (order.totalAmount > 0) {
-            uint256 elapsedTime = block.timestamp - order.startTime;
-            uint256 totalDuration = order.endTime - order.startTime;
-            uint256 amountToBuy = (order.totalAmount * elapsedTime) / totalDuration;
+
+            //if I set an order for 1000 for 100 hours
+            // then i set an interval for 10 hours
+            // what does amountToBuy equal?
+            /// amount* interval/duration 
+            uint256 amountToBuy = (order.totalAmount * order.executionInterval) / (order.endTime - order.startTime);
+            uint256 nextExpirationTimestamp = order.lastExecutionTime + (order.executionInterval - (order.lastExecutionTime % order.executionInterval));
 
             if (amountToBuy > 0) {
                 // Execute partial buyback
                 // Note: This is a simplified version. Weed to implement the actual swap logic here.
                 order.amountBought += amountToBuy;
-                order.lastExecutionTime = block.timestamp;
+                order.lastExecutionTime = nextExpirationTimestamp;
 
                 // Return the amount to buy as a delta
                 return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
@@ -160,6 +179,8 @@ contract TWAMMHook is BaseHook, Ownable {
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
+    /// @notice Allows the initiator to claim bought tokens
+    /// @param key The PoolKey for the pool where the buyback occurred
     function claimBoughtTokens(PoolKey calldata key) external {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
@@ -173,14 +194,29 @@ contract TWAMMHook is BaseHook, Ownable {
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
     }
 
+    /// @notice Sets a new DAO treasury address
+    /// @param _newTreasury The address of the new treasury
     function setDaoTreasury(address _newTreasury) external onlyOwner {
         daoTreasury = _newTreasury;
     }
 
+    /// @notice Sets a new maximum buyback duration
+    /// @param _newMaxDuration The new maximum duration for buybacks
     function setMaxBuybackDuration(uint256 _newMaxDuration) external onlyOwner {
         maxBuybackDuration = _newMaxDuration;
     }
 
+    /// @notice Retrieves details of a buyback order
+    /// @param key The PoolKey for the pool to query
+    /// @return initiator The address that initiated the buyback
+    /// @return totalAmount The total amount of tokens to buy back
+    /// @return amountBought The amount of tokens already bought
+    /// @return startTime The timestamp when the buyback started
+    /// @return endTime The timestamp when the buyback will end
+    /// @return lastExecutionTime The timestamp of the last partial execution
+    /// @return remainingTime The time remaining until the buyback ends
+    /// @return totalDuration The total duration of the buyback
+    /// @return remainingAmount The amount of tokens left to buy
     function getBuybackOrderDetails(PoolKey calldata key)
         external
         view
@@ -210,6 +246,9 @@ contract TWAMMHook is BaseHook, Ownable {
         remainingAmount = order.totalAmount - order.amountBought;
     }
 
+    /// @notice Calculates the time until the next buyback execution
+    /// @param key The PoolKey for the pool to query
+    /// @return The time in seconds until the next execution
     function getTimeUntilNextExecution(PoolKey calldata key) external view returns (uint256) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
@@ -239,7 +278,20 @@ contract TWAMMHook is BaseHook, Ownable {
         if (order.totalAmount == 0) {
             return 0;
         }
+        ////total amount of interval by findinng the total duration and dividing by the execution interval  
+        ////time elapsed is the time from the start of the buyback to the current time
+        ////remainder is the time from the last execution to the current time
+        //// totaleAmount = 10000 executionInterval = 10
+        /// totalAmountOfIntervals = 10000 / 100 = 100
+        ////time elapsed intervals is the time elapsed divided by the execution interval
+        ////percent complete is the time elapsed intervals divided by the total amount of intervals times 100 to get a percentage
+        uint256 totalAmountOfIntervals = (order.endTime - order.startTime) / order.executionInterval;
+        uint256 timeElapsed = block.timestamp - order.startTime;
+        uint256 remainder = timeElapsed % order.executionInterval;
+        uint256 timeElapsedIntervals = timeElapsed - remainder / order.executionInterval;
 
-        return (order.amountBought * 1e18 / order.totalAmount);
+        uint256 percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
+
+        return percentComplete;
     }
 }
