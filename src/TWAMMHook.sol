@@ -1,4 +1,4 @@
- // SPDX-License-Identifier: MIT
+    // SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.24;
 
@@ -33,7 +33,7 @@ contract TWAMMHook is BaseHook, Ownable {
         uint256 lastExecutionTime;
         uint256 executionInterval;
     }
- 
+
     mapping(PoolId => BuybackOrder) public buybackOrders;
     mapping(PoolId => uint256) public buybackAmounts;
     mapping(PoolId => uint256) public claimTokensSupply;
@@ -157,13 +157,13 @@ contract TWAMMHook is BaseHook, Ownable {
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (order.totalAmount > 0) {
-
             //if I set an order for 1000 for 100 hours
             // then i set an interval for 10 hours
             // what does amountToBuy equal?
-            /// amount* interval/duration 
+            /// amount* interval/duration
             uint256 amountToBuy = (order.totalAmount * order.executionInterval) / (order.endTime - order.startTime);
-            uint256 nextExpirationTimestamp = order.lastExecutionTime + (order.executionInterval - (order.lastExecutionTime % order.executionInterval));
+            uint256 nextExpirationTimestamp = order.lastExecutionTime
+                + (order.executionInterval - (order.lastExecutionTime % order.executionInterval));
 
             if (amountToBuy > 0) {
                 // Execute partial buyback
@@ -282,23 +282,17 @@ contract TWAMMHook is BaseHook, Ownable {
         if (order.totalAmount == 0) {
             return 0;
         }
-        // Total intervals in the buyback period
-        uint256 totalAmountOfIntervals = (order.endTime - order.startTime) / order.executionInterval;
-
-        // Time elapsed since buyback start
-        uint256 timeElapsed = block.timestamp - order.startTime;
-
-        // Remainder time not forming a complete interval
-        uint256 remainder = timeElapsed % order.executionInterval;
-
-        // Number of completed intervals
-        uint256 timeElapsedIntervals = (timeElapsed - remainder) / order.executionInterval;
-
         // Calculate progress percentage
         // Example: totalAmount = 10000, executionInterval = 10
         // totalAmountOfIntervals = 10000 / 10 = 1000
         // If 250 intervals have passed:
         // percentComplete = (250 * 100) / 1000 = 25%
+
+        uint256 totalAmountOfIntervals = (order.endTime - order.startTime) / order.executionInterval;
+        uint256 timeElapsed = block.timestamp - order.startTime;
+        uint256 remainder = timeElapsed % order.executionInterval;
+        uint256 timeElapsedIntervals = timeElapsed - remainder / order.executionInterval;
+
         uint256 percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
 
         return percentComplete;
