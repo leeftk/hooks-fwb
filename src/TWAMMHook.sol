@@ -13,6 +13,9 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {console} from "forge-std/console.sol";
 
+/// @title TWAMMHook - Time-Weighted Average Market Maker Hook for Uniswap v4
+/// @notice This contract implements a TWAMM mechanism for automated token buybacks
+/// @dev Inherits from BaseHook and Ownable, and implements Uniswap v4 hook interface
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -42,6 +45,11 @@ contract TWAMMHook is BaseHook, Ownable {
     error NoTokensToClaim();
     error UnauthorizedCaller();
 
+    /// @notice Constructs the TWAMMHook contract
+    /// @param _poolManager The address of the Uniswap v4 pool manager
+    /// @param _daoToken The address of the DAO's token
+    /// @param _daoTreasury The address of the DAO's treasury
+    /// @param _maxBuybackDuration The maximum duration allowed for buyback orders
     constructor(IPoolManager _poolManager, address _daoToken, address _daoTreasury, uint256 _maxBuybackDuration)
         BaseHook(_poolManager)
         Ownable(msg.sender)
@@ -51,6 +59,8 @@ contract TWAMMHook is BaseHook, Ownable {
         maxBuybackDuration = _maxBuybackDuration;
     }
 
+    /// @notice Returns the hook's permissions for Uniswap v4 operations
+    /// @return Hooks.Permissions struct indicating which hooks are implemented
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -70,6 +80,11 @@ contract TWAMMHook is BaseHook, Ownable {
         });
     }
 
+    /// @notice Initiates a new buyback order
+    /// @param key The PoolKey for the pool where the buyback will occur
+    /// @param totalAmount The total amount of tokens to buy back
+    /// @param duration The duration over which the buyback should occur
+    /// @return The PoolKey of the initiated buyback
     function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration)
         external
         returns (PoolKey memory)
@@ -221,7 +236,6 @@ contract TWAMMHook is BaseHook, Ownable {
         if (order.totalAmount == 0) {
             return 0;
         }
-
 
         return (order.amountBought * 1e18 / order.totalAmount);
 
