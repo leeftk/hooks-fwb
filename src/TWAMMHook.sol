@@ -1,4 +1,4 @@
-    // SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 
 pragma solidity ^0.8.24;
 
@@ -21,8 +21,16 @@ contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
-    event BuybackInitiated(PoolId poolId, uint256 totalAmount, uint256 duration);
-    event BuybackOrderUpdated(PoolId poolId, uint256 newTotalAmount, uint256 newDuration);
+    event BuybackInitiated(
+        PoolId poolId,
+        uint256 totalAmount,
+        uint256 duration
+    );
+    event BuybackOrderUpdated(
+        PoolId poolId,
+        uint256 newTotalAmount,
+        uint256 newDuration
+    );
 
     struct BuybackOrder {
         address initiator;
@@ -36,7 +44,7 @@ contract TWAMMHook is BaseHook, Ownable {
 
     mapping(PoolId => BuybackOrder) public buybackOrders;
     mapping(PoolId => uint256) public buybackAmounts;
-    mapping(PoolId => uint256) public claimTokensSupply;
+    mapping(PoolId => uint256) public claimTokensSupply; //@audit-info -> mapping declared but never used
     address public immutable daoToken;
     address public daoTreasury;
     uint256 public maxBuybackDuration;
@@ -47,16 +55,18 @@ contract TWAMMHook is BaseHook, Ownable {
     error NoTokensToClaim();
     error UnauthorizedCaller();
     error IntervalDoesNotDivideDuration();
+
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
     /// @param _daoTreasury The address of the DAO's treasury
     /// @param _maxBuybackDuration The maximum duration allowed for buyback orders
-
-    constructor(IPoolManager _poolManager, address _daoToken, address _daoTreasury, uint256 _maxBuybackDuration)
-        BaseHook(_poolManager)
-        Ownable(msg.sender)
-    {
+    constructor(
+        IPoolManager _poolManager,
+        address _daoToken,
+        address _daoTreasury,
+        uint256 _maxBuybackDuration
+    ) BaseHook(_poolManager) Ownable(msg.sender) {
         daoToken = _daoToken;
         daoTreasury = _daoTreasury;
         maxBuybackDuration = _maxBuybackDuration;
@@ -64,23 +74,29 @@ contract TWAMMHook is BaseHook, Ownable {
 
     /// @notice Returns the hook's permissions for Uniswap v4 operations
     /// @return Hooks.Permissions struct indicating which hooks are implemented
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
-        return Hooks.Permissions({
-            beforeInitialize: false,
-            afterInitialize: false,
-            beforeAddLiquidity: false,
-            afterAddLiquidity: false,
-            beforeRemoveLiquidity: false,
-            afterRemoveLiquidity: false,
-            beforeSwap: true,
-            afterSwap: false,
-            beforeDonate: false,
-            afterDonate: false,
-            beforeSwapReturnDelta: false,
-            afterSwapReturnDelta: false,
-            afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
-        });
+    function getHookPermissions()
+        public
+        pure
+        override
+        returns (Hooks.Permissions memory)
+    {
+        return
+            Hooks.Permissions({
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeAddLiquidity: false,
+                afterAddLiquidity: false,
+                beforeRemoveLiquidity: false,
+                afterRemoveLiquidity: false,
+                beforeSwap: true,
+                afterSwap: false,
+                beforeDonate: false,
+                afterDonate: false,
+                beforeSwapReturnDelta: false,
+                afterSwapReturnDelta: false,
+                afterAddLiquidityReturnDelta: false,
+                afterRemoveLiquidityReturnDelta: false
+            });
     }
 
     /// @notice Initiates a new buyback order
@@ -88,14 +104,19 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @param totalAmount The total amount of tokens to buy back
     /// @param duration The duration over which the buyback should occur
     /// @return The PoolKey of the initiated buyback
-    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval)
-        external
-        returns (PoolKey memory)
-    {
-        if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();
+    function initiateBuyback(
+        PoolKey calldata key,
+        uint256 totalAmount,
+        uint256 duration,
+        uint256 executionInterval
+    ) external returns (PoolKey memory) {
+        //@audit-info -> Currently, for the MVP demo, this should be okay but in PROD this should be a permissioned function or a malicious user can frontrun that can result in DoS attack vectors
+        if (duration % executionInterval != 0)
+            revert IntervalDoesNotDivideDuration();
         if (duration > maxBuybackDuration) revert DurationExceedsMaximum();
         PoolId poolId = key.toId();
-        if (buybackOrders[poolId].totalAmount != 0) revert ExistingBuybackInProgress();
+        if (buybackOrders[poolId].totalAmount != 0)
+            revert ExistingBuybackInProgress();
 
         buybackOrders[poolId] = BuybackOrder({
             initiator: msg.sender,
@@ -108,7 +129,11 @@ contract TWAMMHook is BaseHook, Ownable {
         });
         buybackAmounts[poolId] = totalAmount;
 
-        ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
+        ERC20(Currency.unwrap(key.currency0)).transferFrom(
+            msg.sender,
+            address(this),
+            totalAmount
+        );
 
         emit BuybackInitiated(poolId, totalAmount, duration);
 
@@ -119,21 +144,32 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @param key The PoolKey for the pool where the buyback is occurring
     /// @param newTotalAmount The new total amount for the buyback
     /// @param newDuration The new duration for the buyback
-    function updateBuybackOrder(PoolKey calldata key, uint256 newTotalAmount, uint256 newDuration) external {
+    function updateBuybackOrder(
+        PoolKey calldata key,
+        uint256 newTotalAmount,
+        uint256 newDuration
+    ) external {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (msg.sender != order.initiator) revert UnauthorizedCaller();
         if (newDuration > maxBuybackDuration) revert DurationExceedsMaximum();
 
-        uint256 remainingAmount = order.totalAmount - order.amountBought;
-        if (newTotalAmount < order.amountBought) revert("New total amount must be greater than amount already bought");
+        uint256 remainingAmount = order.totalAmount - order.amountBought; //@audit-info -> "remainingAmount" is never used
+        if (newTotalAmount < order.amountBought)
+            revert(
+                "New total amount must be greater than amount already bought"
+            );
 
         // Transfer additional funds if new total amount is greater
         if (newTotalAmount > order.totalAmount) {
             uint256 additionalAmount = newTotalAmount - order.totalAmount;
-            ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), additionalAmount);
-        }
+            ERC20(Currency.unwrap(key.currency0)).transferFrom(
+                msg.sender,
+                address(this),
+                additionalAmount
+            );
+        } //@audit-info -> missing else logic in case where newTotalAmount < order.totalAmount, in that case, some of the key.currency0 needs to be refunded, need to code it -- zzzuhaibmohd
 
         // Update the order
         order.totalAmount = newTotalAmount;
@@ -142,17 +178,18 @@ contract TWAMMHook is BaseHook, Ownable {
 
         emit BuybackOrderUpdated(poolId, newTotalAmount, newDuration);
     }
-
+    
     /// @notice Executes partial buybacks during swap operations
     /// @dev This function is called by the Uniswap v4 pool before each swap
     /// @param key The PoolKey for the pool where the swap is occurring
     /// @param params The swap parameters
     /// @return The selector of this function, the swap delta, and the fee
-    function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
-        external
-        override
-        returns (bytes4, BeforeSwapDelta, uint24)
-    {
+    function beforeSwap(
+        address,
+        PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        bytes calldata
+    ) external override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
@@ -161,22 +198,32 @@ contract TWAMMHook is BaseHook, Ownable {
             // then i set an interval for 10 hours
             // what does amountToBuy equal?
             /// amount* interval/duration
-            uint256 amountToBuy = (order.totalAmount * order.executionInterval) / (order.endTime - order.startTime);
-            uint256 nextExpirationTimestamp = order.lastExecutionTime
-                + (order.executionInterval - (order.lastExecutionTime % order.executionInterval));
+            uint256 amountToBuy = (order.totalAmount *
+                order.executionInterval) / (order.endTime - order.startTime);
+            uint256 nextExpirationTimestamp = order.lastExecutionTime +
+                (order.executionInterval -
+                    (order.lastExecutionTime % order.executionInterval));
 
             if (amountToBuy > 0) {
                 // Execute partial buyback
-                // Note: This is a simplified version. Weed to implement the actual swap logic here.
+                // Note: This is a simplified version. Need to implement the actual swap logic here.
                 order.amountBought += amountToBuy;
                 order.lastExecutionTime = nextExpirationTimestamp;
 
                 // Return the amount to buy as a delta
-                return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+                return (
+                    BaseHook.beforeSwap.selector,
+                    BeforeSwapDeltaLibrary.ZERO_DELTA,
+                    0
+                );
             }
         }
 
-        return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        return (
+            BaseHook.beforeSwap.selector,
+            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            0
+        );
     }
 
     /// @notice Allows the initiator to claim bought tokens
@@ -217,7 +264,9 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @return remainingTime The time remaining until the buyback ends
     /// @return totalDuration The total duration of the buyback
     /// @return remainingAmount The amount of tokens left to buy
-    function getBuybackOrderDetails(PoolKey calldata key)
+    function getBuybackOrderDetails(
+        PoolKey calldata key
+    )
         external
         view
         returns (
@@ -241,7 +290,9 @@ contract TWAMMHook is BaseHook, Ownable {
         startTime = order.startTime;
         endTime = order.endTime;
         lastExecutionTime = order.lastExecutionTime;
-        remainingTime = order.endTime > block.timestamp ? order.endTime - block.timestamp : 0;
+        remainingTime = order.endTime > block.timestamp
+            ? order.endTime - block.timestamp
+            : 0;
         totalDuration = order.endTime - order.startTime;
         remainingAmount = order.totalAmount - order.amountBought;
     }
@@ -249,7 +300,9 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @notice Calculates the time until the next buyback execution
     /// @param key The PoolKey for the pool to query
     /// @return The time in seconds until the next execution
-    function getTimeUntilNextExecution(PoolKey calldata key) external view returns (uint256) {
+    function getTimeUntilNextExecution(
+        PoolKey calldata key
+    ) external view returns (uint256) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
@@ -259,7 +312,7 @@ contract TWAMMHook is BaseHook, Ownable {
 
         uint256 elapsedTime = block.timestamp - order.lastExecutionTime;
         uint256 totalDuration = order.endTime - order.startTime; // Execute 100 times over the total duration
-        uint256 executionInterval = totalDuration * 1e18 / order.totalAmount;
+        uint256 executionInterval = (totalDuration * 1e18) / order.totalAmount;
 
         console.log("executionInterval", executionInterval);
         console.log("elapsedTime", elapsedTime);
@@ -275,7 +328,9 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @dev Computes the percentage of completed intervals in a buyback order
     /// @param key The PoolKey for the pool where the buyback is occurring
     /// @return percentComplete The percentage of the buyback that has been completed (0-100)
-    function getBuybackProgress(PoolKey calldata key) external view returns (uint256 percentComplete) {
+    function getBuybackProgress(
+        PoolKey calldata key
+    ) external view returns (uint256 percentComplete) {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
@@ -288,12 +343,15 @@ contract TWAMMHook is BaseHook, Ownable {
         // If 250 intervals have passed:
         // percentComplete = (250 * 100) / 1000 = 25%
 
-        uint256 totalAmountOfIntervals = (order.endTime - order.startTime) / order.executionInterval;
+        uint256 totalAmountOfIntervals = (order.endTime - order.startTime) /
+            order.executionInterval;
         uint256 timeElapsed = block.timestamp - order.startTime;
         uint256 remainder = timeElapsed % order.executionInterval;
-        uint256 timeElapsedIntervals = timeElapsed - remainder / order.executionInterval;
+        uint256 timeElapsedIntervals = timeElapsed -
+            remainder /
+            order.executionInterval;
 
-        uint256 percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
+        percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
 
         return percentComplete;
     }
