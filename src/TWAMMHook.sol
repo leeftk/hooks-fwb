@@ -29,8 +29,10 @@ contract TWAMMHook is BaseHook, Ownable {
     event BuybackOrderUpdated(
         PoolId poolId,
         uint256 newTotalAmount,
-        uint256 newDuration
+        uint256 newDuration,
+        uint256 executionInterval
     );
+    event BuybackCancelled(PoolId poolId);
 
     struct BuybackOrder {
         address initiator;
@@ -55,6 +57,7 @@ contract TWAMMHook is BaseHook, Ownable {
     error NoTokensToClaim();
     error UnauthorizedCaller();
     error IntervalDoesNotDivideDuration();
+    error BuyBackOrderDoesNotExist();
 
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
@@ -127,7 +130,7 @@ contract TWAMMHook is BaseHook, Ownable {
             lastExecutionTime: block.timestamp,
             executionInterval: executionInterval
         });
-        buybackAmounts[poolId] = totalAmount;
+        buybackAmounts[poolId] = totalAmount; //@audit-info -> currently unsure of what the mapping is being used for ??
 
         ERC20(Currency.unwrap(key.currency0)).transferFrom(
             msg.sender,
@@ -147,11 +150,14 @@ contract TWAMMHook is BaseHook, Ownable {
     function updateBuybackOrder(
         PoolKey calldata key,
         uint256 newTotalAmount,
-        uint256 newDuration
+        uint256 newDuration,
+        uint256 executionInterval
     ) external {
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
+        if (newDuration % executionInterval != 0)
+            revert IntervalDoesNotDivideDuration();
         if (msg.sender != order.initiator) revert UnauthorizedCaller();
         if (newDuration > maxBuybackDuration) revert DurationExceedsMaximum();
 
@@ -176,9 +182,50 @@ contract TWAMMHook is BaseHook, Ownable {
         order.endTime = block.timestamp + newDuration;
         buybackAmounts[poolId] = newTotalAmount - order.amountBought;
 
-        emit BuybackOrderUpdated(poolId, newTotalAmount, newDuration);
+        emit BuybackOrderUpdated(
+            poolId,
+            newTotalAmount,
+            newDuration,
+            executionInterval
+        );
     }
-    
+
+    function cancelBuyback(
+        PoolKey calldata key
+    ) external returns (PoolKey memory) {
+        PoolId poolId = key.toId();
+        if (
+            buybackOrders[poolId].totalAmount == 0 &&
+            buybackOrders[poolId].initiator == address(0)
+        ) revert BuyBackOrderDoesNotExist();
+
+        if (msg.sender != buybackOrders[poolId].initiator) revert UnauthorizedCaller();
+        
+        uint256 refundAmount = buybackOrders[poolId].totalAmount -
+            buybackOrders[poolId].amountBought;
+        if (refundAmount > 0) {
+            ERC20(Currency.unwrap(key.currency0)).transfer(
+                msg.sender,
+                refundAmount
+            );
+        }
+        
+        //Set the poolId struct to default values
+        buybackOrders[poolId] = BuybackOrder({ 
+            initiator: address(0),
+            totalAmount: 0,
+            amountBought: 0,
+            startTime: 0,
+            endTime: 0,
+            lastExecutionTime: 0,
+            executionInterval: 0
+        });
+
+        emit BuybackCancelled(poolId);
+
+        return key;
+    }
+
     /// @notice Executes partial buybacks during swap operations
     /// @dev This function is called by the Uniswap v4 pool before each swap
     /// @param key The PoolKey for the pool where the swap is occurring
@@ -233,10 +280,22 @@ contract TWAMMHook is BaseHook, Ownable {
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (msg.sender != order.initiator) revert OnlyInitiatorCanClaim();
+        if (order.amountBought == order.totalAmount)
+            revert ExistingBuybackInProgress();
         if (order.amountBought == 0) revert NoTokensToClaim();
 
         uint256 amountToClaim = order.amountBought;
         order.amountBought = 0;
+
+        buybackOrders[poolId] = BuybackOrder({ // Since the order has been filled, enable the claiming of tokens and reset the struct
+            initiator: address(0),
+            totalAmount: 0,
+            amountBought: 0,
+            startTime: 0,
+            endTime: 0,
+            lastExecutionTime: 0,
+            executionInterval: 0
+        });
 
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
     }
