@@ -167,9 +167,6 @@ contract TWAMMHook is BaseHook, Ownable {
 
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
-
-        if (newDuration % executionInterval != 0)
-            revert IntervalDoesNotDivideDuration();
         if (msg.sender != order.initiator) revert UnauthorizedCaller();
         if (block.timestamp + newEndTime  > maxBuybackDuration) revert DurationExceedsMaximum();
 
@@ -198,7 +195,7 @@ contract TWAMMHook is BaseHook, Ownable {
         order.endTime = newEndTime;
         buybackAmounts[poolId] = newTotalAmount - order.amountBought;
 
-        emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime);
+        emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime, order.executionInterval);
     }
 
     /// @notice Executes partial buybacks during swap operations
@@ -330,7 +327,10 @@ contract TWAMMHook is BaseHook, Ownable {
             startTime: 0,
             endTime: 0,
             lastExecutionTime: 0,
-            executionInterval: 0
+            executionInterval: 0,
+            zeroForOne: false,
+            totalIntervals: 0,
+            intervalsBought: 0
         });
 
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
