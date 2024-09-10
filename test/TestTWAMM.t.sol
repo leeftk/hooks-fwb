@@ -87,7 +87,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         //token0.mint(address(this), buybackAmount);
         MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), buybackAmount);
 
-        PoolKey memory returnedKey = twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        PoolKey memory returnedKey = twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
         //totalAmount should be buybackAmount
         uint256 totalAmounts = twammHook.buybackAmounts(poolId);
         console.log("totalAmount", totalAmounts);
@@ -99,7 +99,10 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
-            uint256 executionInterval
+            uint256 executionInterval,
+            bool zeroForOne,
+            uint256 totalIntervals,
+            uint256 intervalsBought
         ) = twammHook.buybackOrders(poolId);
 
         assertEq(initiator, address(this));
@@ -115,7 +118,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 interval = 12 hours;
 
         vm.expectRevert(TWAMMHook.DurationExceedsMaximum.selector);
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
     }
 
     function test_TWAMMHook_InitiateBuybckRevert_ExistingBuybackInProgress() public {
@@ -123,10 +126,10 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 duration = 1 days;
         uint256 interval = 12 hours;
 
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         vm.expectRevert(TWAMMHook.ExistingBuybackInProgress.selector);
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
     }
 
     function test_TWAMMHook_VerifyBuybackOrderExecutes() public {
@@ -135,7 +138,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 interval = 12 hours;
 
         //token0.mint(address(this), buybackAmount);
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
         //Conduct swap
         bool zeroForOne = true;
         vm.warp(block.timestamp + 100 days);
@@ -174,15 +177,14 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         MockERC20(Currency.unwrap(currency0)).approve(address(twammHook), type(uint256).max);
 
         // Initiate buyback
-        twammHook.initiateBuyback(poolKey, initialAmount, initialDuration, interval);
+        twammHook.initiateBuyback(poolKey, initialAmount, initialDuration, interval, true);
 
         // Prepare update parameters
         uint256 newAmount = 1500e18;
         uint256 newDuration = 2 days;
 
         // Update buyback order
-        twammHook.updateBuybackOrder(poolKey, newAmount, newDuration, interval) ;
-
+        twammHook.updateBuybackOrder(poolKey, newAmount, newDuration);
         // Check updated values
         (
             address initiator,
@@ -191,11 +193,14 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
-            uint256 executionInterval
+            uint256 executionInterval,
+            bool zeroForOne,
+            uint256 totalIntervals,
+            uint256 intervalsBought
         ) = twammHook.buybackOrders(poolId);
 
         assertEq(totalAmount, newAmount, "Total amount not updated correctly");
-        assertEq(endTime, block.timestamp + newDuration, "End time not updated correctly");
+        assertEq(endTime + 1, block.timestamp + newDuration, "End time not updated correctly");
         assertEq(twammHook.buybackAmounts(poolKey.toId()), newAmount, "Buyback amount not updated correctly");
 
         // Check token transfer
@@ -211,7 +216,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 duration = 1 days;
         uint256 interval = 12 hours;
 
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         vm.prank(address(0xdead));
         vm.expectRevert(TWAMMHook.OnlyInitiatorCanClaim.selector);
@@ -223,7 +228,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 duration = 1 days;
         uint256 interval = 12 hours;
 
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         vm.expectRevert(TWAMMHook.NoTokensToClaim.selector);
         twammHook.claimBoughtTokens(poolKey);
@@ -247,7 +252,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 duration = 1 days;
         uint256 interval = 12 hours;
 
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         // Warp time to simulate some progress
         vm.warp(block.timestamp + 12 hours);
@@ -283,7 +288,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         });
 
         uint256 interval = 12 hours;
-        twammHook.initiateBuyback(key, 1e21, 86400, interval); // 1 day duration
+        twammHook.initiateBuyback(key, 1e21, 86400, interval, true); // 1 day duration
 
         // Check time remaining at the start
         uint256 timeRemaining = twammHook.getTimeUntilNextExecution(key);
@@ -315,7 +320,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         bool zeroForOne = true;
         uint256 interval = 12 hours;
 
-        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval);
+        twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         // Simulate a partial buyback (this is a simplified simulation)
         vm.warp(block.timestamp + 5 days);

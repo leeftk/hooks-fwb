@@ -12,7 +12,8 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeS
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
-import {console} from "forge-std/console.sol";
+import "forge-std/console.sol";
+import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 
 /// @title TWAMMHook - Time-Weighted Average Market Maker Hook for Uniswap v4
 /// @notice This contract implements a TWAMM mechanism for automated token buybacks
@@ -40,11 +41,14 @@ contract TWAMMHook is BaseHook, Ownable {
         uint256 amountBought;
         uint256 startTime;
         uint256 endTime;
-        uint256 lastExecutionTime;
-        uint256 executionInterval;
+        uint256 lastExecutionTime; // last time we bought
+        uint256 executionInterval; // why we need that
+        bool zeroForOne;
+        uint256 totalIntervals;
+        uint256 intervalsBought;
     }
 
-    mapping(PoolId => BuybackOrder) public buybackOrders;
+    mapping(PoolId poolId => BuybackOrder buyBackOrder) public buybackOrders;
     mapping(PoolId => uint256) public buybackAmounts;
     mapping(PoolId => uint256) public claimTokensSupply; //@audit-info -> mapping declared but never used
     address public immutable daoToken;
@@ -57,8 +61,7 @@ contract TWAMMHook is BaseHook, Ownable {
     error NoTokensToClaim();
     error UnauthorizedCaller();
     error IntervalDoesNotDivideDuration();
-    error BuyBackOrderDoesNotExist();
-
+    error EndTimeIsInPast();
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
@@ -107,15 +110,20 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @param totalAmount The total amount of tokens to buy back
     /// @param duration The duration over which the buyback should occur
     /// @return The PoolKey of the initiated buyback
-    function initiateBuyback(
-        PoolKey calldata key,
-        uint256 totalAmount,
-        uint256 duration,
-        uint256 executionInterval
-    ) external returns (PoolKey memory) {
-        //@audit-info -> Currently, for the MVP demo, this should be okay but in PROD this should be a permissioned function or a malicious user can frontrun that can result in DoS attack vectors
-        if (duration % executionInterval != 0)
-            revert IntervalDoesNotDivideDuration();
+
+    // @note - if the buyback is predictable than anyone can sandwich the transaction, but does that matter?
+
+    // @note - pass in the zeroForOne bool too, of true transfer in currency 0 and buy back currency 1, and if it is currency 1 transfer in currency 1 and buy back currency 0
+
+    // @note - anyone can call this, if it's a fwb deployed pool and someone calls them before them, fucked. 
+    function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval, bool zeroForOne)
+        external
+        onlyOwner
+        returns (PoolKey memory)
+    {
+        // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
+
+        if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();
         if (duration > maxBuybackDuration) revert DurationExceedsMaximum();
         PoolId poolId = key.toId();
         if (buybackOrders[poolId].totalAmount != 0)
@@ -128,15 +136,22 @@ contract TWAMMHook is BaseHook, Ownable {
             startTime: block.timestamp,
             endTime: block.timestamp + duration,
             lastExecutionTime: block.timestamp,
-            executionInterval: executionInterval
+            executionInterval: executionInterval,
+            zeroForOne: zeroForOne,
+            totalIntervals: (duration / executionInterval),
+            intervalsBought: 0
         });
         buybackAmounts[poolId] = totalAmount; //@audit-info -> currently unsure of what the mapping is being used for ??
 
-        ERC20(Currency.unwrap(key.currency0)).transferFrom(
-            msg.sender,
-            address(this),
-            totalAmount
-        );
+        if(zeroForOne)
+        {
+                    ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
+        }
+        else
+        {
+                    ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), totalAmount);
+
+        }
 
         emit BuybackInitiated(poolId, totalAmount, duration);
 
@@ -146,84 +161,44 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @notice Updates an existing buyback order
     /// @param key The PoolKey for the pool where the buyback is occurring
     /// @param newTotalAmount The new total amount for the buyback
-    /// @param newDuration The new duration for the buyback
-    function updateBuybackOrder(
-        PoolKey calldata key,
-        uint256 newTotalAmount,
-        uint256 newDuration,
-        uint256 executionInterval
-    ) external {
+    /// @param newEndTime The new end time for the buyback
+    function updateBuybackOrder(PoolKey calldata key, uint256 newTotalAmount, uint256 newEndTime) external {
+        if(newEndTime < block.timestamp) revert EndTimeIsInPast();
+
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (newDuration % executionInterval != 0)
             revert IntervalDoesNotDivideDuration();
         if (msg.sender != order.initiator) revert UnauthorizedCaller();
-        if (newDuration > maxBuybackDuration) revert DurationExceedsMaximum();
+        if (block.timestamp + newEndTime  > maxBuybackDuration) revert DurationExceedsMaximum();
 
-        uint256 remainingAmount = order.totalAmount - order.amountBought; //@audit-info -> "remainingAmount" is never used
-        if (newTotalAmount < order.amountBought)
-            revert(
-                "New total amount must be greater than amount already bought"
-            );
+        uint256 remainingAmount = order.totalAmount - order.amountBought;
+
+        // if we are changing the end time, this seems like unnessary, what if he pushes time ahead and now within that time he wants to do certain buyback
+        if (newTotalAmount < order.amountBought) revert("New total amount must be greater than amount already bought");
 
         // Transfer additional funds if new total amount is greater
         if (newTotalAmount > order.totalAmount) {
             uint256 additionalAmount = newTotalAmount - order.totalAmount;
-            ERC20(Currency.unwrap(key.currency0)).transferFrom(
-                msg.sender,
-                address(this),
-                additionalAmount
-            );
-        } //@audit-info -> missing else logic in case where newTotalAmount < order.totalAmount, in that case, some of the key.currency0 needs to be refunded, need to code it -- zzzuhaibmohd
+            if(order.zeroForOne)
+            {
+                            ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), additionalAmount);
+
+            }
+            else
+            {
+                            ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), additionalAmount);
+
+            }
+        }
 
         // Update the order
         order.totalAmount = newTotalAmount;
-        order.endTime = block.timestamp + newDuration;
+        order.endTime = newEndTime;
         buybackAmounts[poolId] = newTotalAmount - order.amountBought;
 
-        emit BuybackOrderUpdated(
-            poolId,
-            newTotalAmount,
-            newDuration,
-            executionInterval
-        );
-    }
-
-    function cancelBuyback(
-        PoolKey calldata key
-    ) external returns (PoolKey memory) {
-        PoolId poolId = key.toId();
-        if (
-            buybackOrders[poolId].totalAmount == 0 &&
-            buybackOrders[poolId].initiator == address(0)
-        ) revert BuyBackOrderDoesNotExist();
-
-        if (msg.sender != buybackOrders[poolId].initiator) revert UnauthorizedCaller();
-        
-        uint256 refundAmount = buybackOrders[poolId].totalAmount -
-            buybackOrders[poolId].amountBought;
-        if (refundAmount > 0) {
-            ERC20(Currency.unwrap(key.currency0)).transfer(
-                msg.sender,
-                refundAmount
-            );
-        }
-        
-        //Set the poolId struct to default values
-        buybackOrders[poolId] = BuybackOrder({ 
-            initiator: address(0),
-            totalAmount: 0,
-            amountBought: 0,
-            startTime: 0,
-            endTime: 0,
-            lastExecutionTime: 0,
-            executionInterval: 0
-        });
-
-        emit BuybackCancelled(poolId);
-
-        return key;
+        emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime);
     }
 
     /// @notice Executes partial buybacks during swap operations
@@ -231,38 +206,99 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @param key The PoolKey for the pool where the swap is occurring
     /// @param params The swap parameters
     /// @return The selector of this function, the swap delta, and the fee
-    function beforeSwap(
-        address,
-        PoolKey calldata key,
-        IPoolManager.SwapParams calldata params,
-        bytes calldata
-    ) external override returns (bytes4, BeforeSwapDelta, uint24) {
+    function beforeSwap(address sender, PoolKey calldata key, IPoolManager.SwapParams calldata params, bytes calldata)
+        external
+        override
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        // hook should not be triggered in the swap is called by hook iteself causing recursion
+        if(sender == address(this))
+        {
+            return (this.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
+        }
+
         PoolId poolId = key.toId();
         BuybackOrder storage order = buybackOrders[poolId];
 
-        if (order.totalAmount > 0) {
+        if (order.totalAmount > 0 && order.amountBought < order.totalAmount) {
+
+            if(order.endTime > block.timestamp)
+            {
+                // need to do something because time has gone over and we have still some buying left to do since amountBought is less than totalAmount
+            }
             //if I set an order for 1000 for 100 hours
             // then i set an interval for 10 hours
             // what does amountToBuy equal?
             /// amount* interval/duration
-            uint256 amountToBuy = (order.totalAmount *
-                order.executionInterval) / (order.endTime - order.startTime);
-            uint256 nextExpirationTimestamp = order.lastExecutionTime +
-                (order.executionInterval -
-                    (order.lastExecutionTime % order.executionInterval));
+            // depending upon how many intervals have passed since last execution, we need to buy more or less
+            
+            // Example:
+            // Let's say order.lastExecutionTime = 1000 (seconds since epoch)
+            // Current block.timestamp = 1250
+            // order.executionInterval = 100 seconds
+
+            uint256 intervalsPassed = (block.timestamp - order.lastExecutionTime) / order.executionInterval;
+
+
+            // now based on intervals passed we need to calculate the amount to buy
+            // let's say the  total amount is 1000, and total time is 1000 hours and interval is 100 hours
+            // so there will be 10 intervals in total
+            // so if I want to buy 1000 amount in 10 intervals, then at each interval I need to buy 100 amount
+            // so if 2 intervals have passed, then I need to buy 200 amount
+            // so if 3 intervals have passed, then I need to buy 300 amount
+            // so if 4 intervals have passed, then I need to buy 400 amount
+            // so if 5 intervals have passed, then I need to buy 500 amount
+            // so if 6 intervals have passed, then I need to buy 600 amount
+            // so if 7 intervals have passed, then I need to buy 700 amount
+            // so if 8 intervals have passed, then I need to buy 800 amount
+            // 2000 * 100 / 1000 = 200
+            uint256 amountToBuyInSingleInterval = (order.totalAmount * order.executionInterval) / (order.endTime - order.startTime);
+            uint256 amountToBuy = amountToBuyInSingleInterval * intervalsPassed;
+      
+
 
             if (amountToBuy > 0) {
                 // Execute partial buyback
-                // Note: This is a simplified version. Need to implement the actual swap logic here.
-                order.amountBought += amountToBuy;
-                order.lastExecutionTime = nextExpirationTimestamp;
+                // Note: This is a simplified version. Weed to implement the actual swap logic here.
+                // now take the current block.timestamp and set the lastExecutionTime not to this but a rounded down value where the interval started
+                // Update lastExecutionTime to the start of the current interval
+                // Example: If current time is 1250 and interval is 100:
+                // 1250 - (1250 % 100) = 1250 - 50 = 1200
+                // This ensures we're always at the beginning of an interval
+                order.lastExecutionTime = block.timestamp - (block.timestamp % order.executionInterval);
+                order.intervalsBought += intervalsPassed;
+           
+                    IPoolManager.SwapParams memory newParams = IPoolManager.SwapParams({
+                        zeroForOne: order.zeroForOne,
+                        amountSpecified: int256(amountToBuy),
+                        sqrtPriceLimitX96: order.zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
+                    });
 
-                // Return the amount to buy as a delta
-                return (
-                    BaseHook.beforeSwap.selector,
-                    BeforeSwapDeltaLibrary.ZERO_DELTA,
-                    0
-                );
+                    BalanceDelta delta = poolManager.swap(key, newParams, "");
+
+
+                    if (order.zeroForOne) {
+                        // Negative Value => Money leaving TWAMM's wallet
+                        // Settle with PoolManager
+                        if (delta.amount0() < 0) {
+                            _settle(key.currency0, uint128(-delta.amount0()));
+                        }
+
+                        // Positive Value => Money coming into TWAMM's wallet
+                        // Take from PoolManager
+                        if (delta.amount1() > 0) {
+                            order.amountBought += _take(key.currency1, uint128(delta.amount1()));
+                        }
+                    } else {
+                        if (delta.amount1() < 0) {
+                            _settle(key.currency1, uint128(-delta.amount1()));
+                        }
+
+                        if (delta.amount0() > 0) {
+                            order.amountBought += _take(key.currency0, uint128(delta.amount0()));
+                        }
+                    }
+               
             }
         }
 
@@ -414,4 +450,31 @@ contract TWAMMHook is BaseHook, Ownable {
 
         return percentComplete;
     }
+
+
+    function _settle(Currency currency, uint128 amount) internal {
+    // Transfer tokens to PM and let it know
+    console.log("amount hehe", amount);
+    poolManager.sync(currency);
+    currency.transfer(address(poolManager), amount);
+    poolManager.settle();
+}
+
+function _take(Currency currency, uint128 amount) internal returns(uint256) {
+    // Record balance before taking tokens
+    uint256 balanceBefore = ERC20(Currency.unwrap(currency)).balanceOf(address(this));
+    
+    // Take tokens out of PM to our hook contract
+    poolManager.take(currency, address(this), amount);
+    
+    // Record balance after taking tokens
+    uint256 balanceAfter = ERC20(Currency.unwrap(currency)).balanceOf(address(this));
+    
+    // Calculate the actual amount bought
+    uint256 amountBought = balanceAfter - balanceBefore;
+
+    return amountBought;
+    
+    
+}
 }
