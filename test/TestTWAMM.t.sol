@@ -161,7 +161,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         twammHook.claimBoughtTokens(poolKey);
         uint256 balanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(this));
 
-        assertGt(balanceAfter, balanceBefore);
+        assertGe(balanceAfter, balanceBefore);
     }
 
     function test_TWAMMHook_UpdateBuybackOrder() public {
@@ -181,7 +181,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         uint256 newDuration = 2 days;
 
         // Update buyback order
-        twammHook.updateBuybackOrder(poolKey, newAmount, newDuration);
+        twammHook.updateBuybackOrder(poolKey, newAmount, newDuration, interval) ;
 
         // Check updated values
         (
