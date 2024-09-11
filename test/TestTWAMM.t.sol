@@ -96,6 +96,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -190,6 +191,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -209,6 +211,151 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             newAmount,
             "Hook balance not updated correctly"
         );
+    }
+
+    function test_TWAMMHook_VerifyClaimTokens() public {
+        uint256 buybackAmount = 1000e18;
+        uint256 duration = 1 days;
+        uint256 interval = 12 hours;
+    
+        twammHook.initiateBuyback(
+            poolKey,
+            buybackAmount,
+            duration,
+            interval,
+            true
+        );
+    
+        //Conduct swap #1
+        bool zeroForOne = true;
+        vm.warp(block.timestamp + 100 days);
+    
+        // Do a separate swap from oneForZero to make tick go up
+        // Sell 1e18 token1 tokens for token0 tokens
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: !zeroForOne,
+            amountSpecified: 100 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+    
+        PoolSwapTest.TestSettings memory testSettings = PoolSwapTest
+            .TestSettings({takeClaims: false, settleUsingBurn: false});
+    
+        swapRouter.swap(poolKey, params, testSettings, "");
+        //send tokens back to twammhook
+        MockERC20(Currency.unwrap(currency0)).transfer(
+            address(twammHook),
+            100000000000e18
+        );
+    
+        (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 amountClaimed,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+    
+        ) = twammHook.buybackOrders(poolKey.toId());
+    
+        assertEq(amountClaimed, 0);
+    
+        twammHook.claimBoughtTokens(poolKey);
+    
+        (
+            initiator,
+            totalAmount,
+            amountBought,
+            amountClaimed,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+    
+        ) = twammHook.buybackOrders(poolKey.toId());
+    
+        assertEq(amountClaimed, amountBought);
+    }
+    
+    function test_TWAMMHook_VerifyCancelOrder() public {
+        uint256 buybackAmount = 1000e18;
+        uint256 duration = 1 days;
+        uint256 interval = 12 hours;
+    
+        twammHook.initiateBuyback(
+            poolKey,
+            buybackAmount,
+            duration,
+            interval,
+            true
+        );
+    
+        //Conduct swap #1
+        bool zeroForOne = true;
+        vm.warp(block.timestamp + 100 days);
+    
+        // Do a separate swap from oneForZero to make tick go up
+        // Sell 1e18 token1 tokens for token0 tokens
+        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
+            zeroForOne: !zeroForOne,
+            amountSpecified: 100 ether,
+            sqrtPriceLimitX96: TickMath.MAX_SQRT_PRICE - 1
+        });
+    
+        PoolSwapTest.TestSettings memory testSettings = PoolSwapTest
+            .TestSettings({takeClaims: false, settleUsingBurn: false});
+    
+        swapRouter.swap(poolKey, params, testSettings, "");
+        //send tokens back to twammhook
+        MockERC20(Currency.unwrap(currency0)).transfer(
+            address(twammHook),
+            100000000000e18
+        );
+    
+        (
+            address initiator,
+            uint256 totalAmount,
+            uint256 amountBought,
+            uint256 amountClaimed,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+    
+        ) = twammHook.buybackOrders(poolKey.toId());
+    
+        assertEq(amountClaimed, 0);
+    
+        twammHook.cancelBuyback(poolKey);
+    
+        (
+            initiator,
+            totalAmount,
+            amountBought,
+            amountClaimed,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+    
+        ) = twammHook.buybackOrders(poolKey.toId());
+    
+        assertEq(totalAmount, 0);
+        assertEq(initiator, address(0));
+    
+        vm.expectRevert(TWAMMHook.BuyBackOrderDoesNotExist.selector);
+        twammHook.cancelBuyback(poolKey);
+    
     }
 
     function test_TWAMMHook_ClaimBoughtTokens_Revert_OnlyInitiatorCanClaim() public {
@@ -261,6 +408,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -340,6 +488,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -368,6 +517,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
