@@ -39,6 +39,7 @@ contract TWAMMHook is BaseHook, Ownable {
         address initiator;
         uint256 totalAmount;
         uint256 amountBought;
+        uint256 amountClaimed;
         uint256 startTime;
         uint256 endTime;
         uint256 lastExecutionTime; // last time we bought
@@ -62,6 +63,8 @@ contract TWAMMHook is BaseHook, Ownable {
     error UnauthorizedCaller();
     error IntervalDoesNotDivideDuration();
     error EndTimeIsInPast();
+    error BuyBackOrderDoesNotExist();
+
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
@@ -119,7 +122,7 @@ contract TWAMMHook is BaseHook, Ownable {
     function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval, bool zeroForOne)
         external
         onlyOwner
-        returns (PoolKey memory)
+        returns (PoolKey memory) //@audit-info -> Currently, for the MVP demo, this should be okay but in PROD this should be a permissioned function or a malicious user can frontrun that can result in DoS attack vectors
     {
         // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
 
@@ -133,6 +136,7 @@ contract TWAMMHook is BaseHook, Ownable {
             initiator: msg.sender,
             totalAmount: totalAmount,
             amountBought: 0,
+            amountClaimed: 0,
             startTime: block.timestamp,
             endTime: block.timestamp + duration,
             lastExecutionTime: block.timestamp,
@@ -170,7 +174,7 @@ contract TWAMMHook is BaseHook, Ownable {
         if (msg.sender != order.initiator) revert UnauthorizedCaller();
         if (block.timestamp + newEndTime  > maxBuybackDuration) revert DurationExceedsMaximum();
 
-        uint256 remainingAmount = order.totalAmount - order.amountBought;
+        uint256 remainingAmount = order.totalAmount - order.amountBought; //@audit-info -> "remainingAmount" is never used
 
         // if we are changing the end time, this seems like unnessary, what if he pushes time ahead and now within that time he wants to do certain buyback
         if (newTotalAmount < order.amountBought) revert("New total amount must be greater than amount already bought");
@@ -188,7 +192,7 @@ contract TWAMMHook is BaseHook, Ownable {
                             ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), additionalAmount);
 
             }
-        }
+        }//@audit-info -> missing else logic in case where newTotalAmount < order.totalAmount, in that case, some of the key.currency0 needs to be refunded
 
         // Update the order
         order.totalAmount = newTotalAmount;
@@ -196,6 +200,61 @@ contract TWAMMHook is BaseHook, Ownable {
         buybackAmounts[poolId] = newTotalAmount - order.amountBought;
 
         emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime, order.executionInterval);
+    }
+
+    /// * @notice Cancels an active buyback order for a specified pool.
+    /// * @dev This function allows the initiator of a buyback order to cancel it, reclaiming any unspent and unclaimed tokens.
+    /// * @param key The PoolKey calldata that represents the buyback order to cancel.
+    function cancelBuyback(
+        PoolKey calldata key
+    ) external returns (PoolKey memory) {
+        PoolId poolId = key.toId();
+        if (
+            buybackOrders[poolId].totalAmount == 0 &&
+            buybackOrders[poolId].initiator == address(0)
+        ) revert BuyBackOrderDoesNotExist();
+
+        if (msg.sender != buybackOrders[poolId].initiator)
+            revert UnauthorizedCaller();
+
+        uint256 refundAmount = buybackOrders[poolId].totalAmount -
+            buybackOrders[poolId].amountBought;
+        if (refundAmount > 0) {
+            ERC20(Currency.unwrap(key.currency0)).transfer(
+                msg.sender,
+                refundAmount
+            );
+        }
+
+        uint256 amountToClaim = buybackOrders[poolId].amountBought -
+            buybackOrders[poolId].amountClaimed;
+        if (amountToClaim > 0) {
+            ERC20(daoToken).transfer(
+                buybackOrders[poolId].initiator,
+                amountToClaim
+            );
+        }
+        console.log("refundAmount: ", refundAmount);
+        console.log("amountToClaim: ", amountToClaim);
+
+        //Set the poolId struct to default values
+        buybackOrders[poolId] = BuybackOrder({
+            initiator: address(0),
+            totalAmount: 0,
+            amountBought: 0,
+            amountClaimed: 0,
+            startTime: 0,
+            endTime: 0,
+            lastExecutionTime: 0,
+            executionInterval: 0,
+            zeroForOne: false,
+            totalIntervals: 0,
+            intervalsBought: 0
+        });
+
+        emit BuybackCancelled(poolId);
+
+        return key;
     }
 
     /// @notice Executes partial buybacks during swap operations
@@ -313,25 +372,12 @@ contract TWAMMHook is BaseHook, Ownable {
         BuybackOrder storage order = buybackOrders[poolId];
 
         if (msg.sender != order.initiator) revert OnlyInitiatorCanClaim();
-        if (order.amountBought == order.totalAmount)
-            revert ExistingBuybackInProgress();
+        // if (order.amountBought == order.totalAmount)
+        //     revert ExistingBuybackInProgress();
         if (order.amountBought == 0) revert NoTokensToClaim();
 
-        uint256 amountToClaim = order.amountBought;
-        order.amountBought = 0;
-
-        buybackOrders[poolId] = BuybackOrder({ // Since the order has been filled, enable the claiming of tokens and reset the struct
-            initiator: address(0),
-            totalAmount: 0,
-            amountBought: 0,
-            startTime: 0,
-            endTime: 0,
-            lastExecutionTime: 0,
-            executionInterval: 0,
-            zeroForOne: false,
-            totalIntervals: 0,
-            intervalsBought: 0
-        });
+        uint256 amountToClaim = order.amountBought - order.amountClaimed;
+        order.amountClaimed += amountToClaim;
 
         ERC20(daoToken).transfer(order.initiator, amountToClaim);
     }
@@ -353,6 +399,7 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @return initiator The address that initiated the buyback
     /// @return totalAmount The total amount of tokens to buy back
     /// @return amountBought The amount of tokens already bought
+    /// @return amountClaimed The amount of tokens already claimed
     /// @return startTime The timestamp when the buyback started
     /// @return endTime The timestamp when the buyback will end
     /// @return lastExecutionTime The timestamp of the last partial execution
@@ -368,6 +415,7 @@ contract TWAMMHook is BaseHook, Ownable {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
