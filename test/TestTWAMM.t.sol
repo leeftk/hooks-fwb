@@ -267,7 +267,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             uint256 remainingTime,
             uint256 totalDuration,
             uint256 remainingAmount
-        ) = twammHook.getBuybackOrderDetails(poolKey);
+        ) = twammHook.getBuybackOrdferDetails(poolKey);
 
         assertEq(initiator, address(this), "Incorrect initiator");
         assertEq(totalAmount, buybackAmount, "Incorrect total amount");
