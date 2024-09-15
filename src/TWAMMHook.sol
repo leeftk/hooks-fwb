@@ -64,6 +64,7 @@ contract TWAMMHook is BaseHook, Ownable {
     error IntervalDoesNotDivideDuration();
     error EndTimeIsInPast();
     error BuyBackOrderDoesNotExist();
+ 
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
@@ -121,7 +122,7 @@ contract TWAMMHook is BaseHook, Ownable {
     function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval, bool zeroForOne)
         external
         onlyOwner
-        returns (PoolKey memory)
+        returns (PoolKey memory) //@audit-info -> Currently, for the MVP demo, this should be okay but in PROD this should be a permissioned function or a malicious user can frontrun that can result in DoS attack vectors
     {
         // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
 
@@ -233,7 +234,7 @@ contract TWAMMHook is BaseHook, Ownable {
                             ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), additionalAmount);
 
             }
-        }
+        }//@audit-info -> missing else logic in case where newTotalAmount < order.totalAmount, in that case, some of the key.currency0 needs to be refunded
 
         // Update the order
         order.totalAmount = newTotalAmount;
@@ -246,20 +247,18 @@ contract TWAMMHook is BaseHook, Ownable {
         emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime, order.executionInterval);
     }
 
-
-
+    /// * @notice Cancels an active buyback order for a specified pool.
+    /// * @dev This function allows the initiator of a buyback order to cancel it, reclaiming any unspent and unclaimed tokens.
+    /// * @param key The PoolKey calldata that represents the buyback order to cancel.
     function cancelBuyback(
         PoolKey calldata key
     ) external returns (PoolKey memory) {
         PoolId poolId = key.toId();
 
-        if (    buybackOrders[poolId].totalAmount == 0 && buybackOrders[poolId].initiator == address(0)
-        ) revert BuyBackOrderDoesNotExist();
+        if (    buybackOrders[poolId].totalAmount == 0 && buybackOrders[poolId].initiator == address(0)) revert BuyBackOrderDoesNotExist();
 
         if (msg.sender != buybackOrders[poolId].initiator)
-            revert UnauthorizedCaller();
-
-        
+            revert UnauthorizedCaller();        
 
         // Execute any pending buyback intervals before cancelling, only up to current block.timestamp
         BuybackOrder storage order = buybackOrders[poolId];
@@ -284,7 +283,6 @@ contract TWAMMHook is BaseHook, Ownable {
             order.lastExecutionTime = block.timestamp;
             order.amountBought += amountToBuy;
         }
-
         uint256 refundAmount = buybackOrders[poolId].totalAmount -
             buybackOrders[poolId].amountBought;
         if (refundAmount > 0) {
@@ -437,6 +435,7 @@ contract TWAMMHook is BaseHook, Ownable {
     /// @return initiator The address that initiated the buyback
     /// @return totalAmount The total amount of tokens to buy back
     /// @return amountBought The amount of tokens already bought
+    /// @return amountClaimed The amount of tokens already claimed
     /// @return startTime The timestamp when the buyback started
     /// @return endTime The timestamp when the buyback will end
     /// @return lastExecutionTime The timestamp of the last partial execution
@@ -452,6 +451,7 @@ contract TWAMMHook is BaseHook, Ownable {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,

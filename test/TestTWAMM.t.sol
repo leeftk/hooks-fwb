@@ -213,7 +213,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         );
     }
 
-    
     function test_TWAMMHook_VerifyClaimTokens() public {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
@@ -283,7 +282,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     
         assertEq(amountClaimed, amountBought);
     }
-
     
     function test_TWAMMHook_VerifyCancelOrder() public {
         uint256 buybackAmount = 1000e18;
@@ -360,7 +358,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
     
     }
 
-
     function test_TWAMMHook_ClaimBoughtTokens_Revert_OnlyInitiatorCanClaim() public {
         uint256 buybackAmount = 1000e18;
         uint256 duration = 1 days;
@@ -411,6 +408,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -490,6 +488,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
@@ -518,6 +517,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
             address initiator,
             uint256 totalAmount,
             uint256 amountBought,
+            uint256 amountClaimed,
             uint256 startTime,
             uint256 endTime,
             uint256 lastExecutionTime,
