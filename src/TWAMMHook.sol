@@ -71,8 +71,9 @@ contract TWAMMHook is BaseHook, Ownable {
         IPoolManager _poolManager,
         address _daoToken,
         address _daoTreasury,
-        uint256 _maxBuybackDuration
-    ) BaseHook(_poolManager) Ownable(msg.sender) {
+        uint256 _maxBuybackDuration,
+        address _owner
+    ) BaseHook(_poolManager) Ownable(_owner) {
         daoToken = _daoToken;
         daoTreasury = _daoTreasury;
         maxBuybackDuration = _maxBuybackDuration;
@@ -145,10 +146,12 @@ contract TWAMMHook is BaseHook, Ownable {
 
         if(zeroForOne)
         {
+            console.log("address of token in the hook", address(Currency.unwrap(key.currency0)));
                     ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
         }
         else
-        {
+        {console.log("address of token in the hook", address(Currency.unwrap(key.currency1)));
+        console.log("balance of msg.sender of token 1", ERC20(Currency.unwrap(key.currency1)).balanceOf(msg.sender));
                     ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), totalAmount);
 
         }
