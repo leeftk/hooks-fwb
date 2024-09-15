@@ -219,7 +219,7 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
 
         vm.prank(address(0xdead));
-        vm.expectRevert(TWAMMHook.OnlyInitiatorCanClaim.selector);
+        vm.expectRevert();
         twammHook.claimBoughtTokens(poolKey);
     }
 
