@@ -39,6 +39,7 @@ contract TWAMMHook is BaseHook, Ownable {
         address initiator;
         uint256 totalAmount;
         uint256 amountBought;
+        uint256 amountClaimed;
         uint256 startTime;
         uint256 endTime;
         uint256 lastExecutionTime; // last time we bought
@@ -62,6 +63,7 @@ contract TWAMMHook is BaseHook, Ownable {
     error UnauthorizedCaller();
     error IntervalDoesNotDivideDuration();
     error EndTimeIsInPast();
+    error BuyBackOrderDoesNotExist();
     /// @notice Constructs the TWAMMHook contract
     /// @param _poolManager The address of the Uniswap v4 pool manager
     /// @param _daoToken The address of the DAO's token
@@ -133,6 +135,7 @@ contract TWAMMHook is BaseHook, Ownable {
             initiator: msg.sender,
             totalAmount: totalAmount,
             amountBought: 0,
+            amountClaimed: 0,
             startTime: block.timestamp,
             endTime: block.timestamp + duration,
             lastExecutionTime: block.timestamp,
@@ -243,6 +246,83 @@ contract TWAMMHook is BaseHook, Ownable {
         emit BuybackOrderUpdated(poolId, newTotalAmount, newEndTime, order.executionInterval);
     }
 
+
+
+    function cancelBuyback(
+        PoolKey calldata key
+    ) external returns (PoolKey memory) {
+        PoolId poolId = key.toId();
+
+        if (    buybackOrders[poolId].totalAmount == 0 && buybackOrders[poolId].initiator == address(0)
+        ) revert BuyBackOrderDoesNotExist();
+
+        if (msg.sender != buybackOrders[poolId].initiator)
+            revert UnauthorizedCaller();
+
+        
+
+        // Execute any pending buyback intervals before cancelling, only up to current block.timestamp
+        BuybackOrder storage order = buybackOrders[poolId];
+        uint256 timeSinceLastExecution = block.timestamp - order.lastExecutionTime;
+        uint256 intervalsPassed = timeSinceLastExecution / order.executionInterval;
+
+        if (intervalsPassed > 0) {
+            uint256 amountPerInterval = order.totalAmount / order.totalIntervals;
+            uint256 amountToBuy = amountPerInterval * intervalsPassed;
+
+            // Ensure we don't buy more than the remaining amount
+            uint256 remainingAmount = order.totalAmount - order.amountBought;
+            if (amountToBuy > remainingAmount) {
+                amountToBuy = remainingAmount;
+            }
+
+            // Execute the swap for the pending intervals
+            _executeSwap(key, order, amountToBuy);
+
+            // Update the order
+            order.intervalsBought += intervalsPassed;
+            order.lastExecutionTime = block.timestamp;
+            order.amountBought += amountToBuy;
+        }
+
+        uint256 refundAmount = buybackOrders[poolId].totalAmount -
+            buybackOrders[poolId].amountBought;
+        if (refundAmount > 0) {
+            ERC20(Currency.unwrap(key.currency0)).transfer(
+                msg.sender,
+                refundAmount
+            );
+        }
+
+        uint256 amountToClaim = buybackOrders[poolId].amountBought -
+            buybackOrders[poolId].amountClaimed;
+        if (amountToClaim > 0) {
+            ERC20(daoToken).transfer(
+                buybackOrders[poolId].initiator,
+                amountToClaim
+            );
+        }
+
+        //Set the poolId struct to default values
+        buybackOrders[poolId] = BuybackOrder({
+            initiator: address(0),
+            totalAmount: 0,
+            amountBought: 0,
+            amountClaimed: 0,
+            startTime: 0,
+            endTime: 0,
+            lastExecutionTime: 0,
+            executionInterval: 0,
+            zeroForOne: false,
+            totalIntervals: 0,
+            intervalsBought: 0
+        });
+
+        emit BuybackCancelled(poolId);
+
+        return key;
+    }
+
     /// @notice Executes partial buybacks during swap operations
     /// @dev This function is called by the Uniswap v4 pool before each swap
     /// @param key The PoolKey for the pool where the swap is occurring
@@ -325,11 +405,19 @@ contract TWAMMHook is BaseHook, Ownable {
 
     /// @notice Allows the initiator to claim bought tokens
     /// @param key The PoolKey for the pool where the buyback occurred
-    function claimBoughtTokens(PoolKey calldata key) external onlyOwner {
-        
-        uint256 totalDaoTokens = ERC20(daoToken).balanceOf(address(this));
-        if(totalDaoTokens == 0) revert NoTokensToClaim();
-        ERC20(daoToken).transfer(msg.sender, totalDaoTokens);
+    function claimBoughtTokens(PoolKey calldata key) external {
+        PoolId poolId = key.toId();
+        BuybackOrder storage order = buybackOrders[poolId];
+
+        if (msg.sender != order.initiator) revert OnlyInitiatorCanClaim();
+        // if (order.amountBought == order.totalAmount)
+        //     revert ExistingBuybackInProgress();
+        if (order.amountBought == 0) revert NoTokensToClaim();
+
+        uint256 amountToClaim = order.amountBought - order.amountClaimed;
+        order.amountClaimed += amountToClaim;
+
+        ERC20(daoToken).transfer(order.initiator, amountToClaim);
     }
 
     /// @notice Sets a new DAO treasury address
@@ -506,6 +594,4 @@ function _executeSwap(PoolKey memory key, BuybackOrder storage order, uint256 am
         }
     }
 }
-
-// TODO: Add a helper function for update view
 }
