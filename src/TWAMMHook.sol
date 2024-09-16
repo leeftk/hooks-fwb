@@ -124,6 +124,7 @@ contract TWAMMHook is BaseHook, Ownable {
     {
         // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
 
+
         if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();
         if (duration > maxBuybackDuration) revert DurationExceedsMaximum();
         PoolId poolId = key.toId();

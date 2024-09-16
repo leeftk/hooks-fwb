@@ -42,7 +42,7 @@ contract DeployTWAMM is Script {
         address daoTreasury = msg.sender;
 
         // Set maxBuybackDuration to 100 hours in seconds
-        uint256 maxBuybackDuration = 100 * 3600; // 100 hours in seconds
+        uint256 maxBuybackDuration = 10000000000000000000000 * 3600; // 100 hours in seconds
 
         // Define hook permissions
         uint160 permissions = uint160(Hooks.BEFORE_SWAP_FLAG);
@@ -66,6 +66,7 @@ contract DeployTWAMM is Script {
         );
         twammHook = twammHook;
         console.log("twammHook", address(twammHook));
+        console.log("hookAddress", hookAddress);
         require(address(twammHook) == hookAddress, "DeployTWAMM: hook address mismatch");
 
    
@@ -79,10 +80,12 @@ contract DeployTWAMM is Script {
 
         MockERC20(Currency.unwrap(key.currency0)).approve(address(twammHook), type(uint256).max);
         MockERC20(Currency.unwrap(key.currency1)).approve(address(twammHook), type(uint256).max);
+        address treasury = twammHook.daoTreasury();
+        console.log("treasury", treasury);
         
 
 
-        twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
+        //twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
 
         (address initiator,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
         vm.stopBroadcast();
