@@ -65,6 +65,7 @@ contract DeployTWAMM is Script {
             msg.sender
         );
         twammHook = twammHook;
+        console.log("twammHook", address(twammHook));
         require(address(twammHook) == hookAddress, "DeployTWAMM: hook address mismatch");
 
    

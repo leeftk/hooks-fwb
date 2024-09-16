@@ -2,6 +2,7 @@
   "dependencies": {
     "@wagmi/connectors": "^5.1.10",
     "@wagmi/core": "^2.13.5",
+    "ethers": "^6.13.2",
     "viem": "^2.21.7",
     "wagmi": "^2.12.11"
   }
