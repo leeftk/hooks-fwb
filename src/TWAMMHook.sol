@@ -21,6 +21,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
+    string public message;
 
     event BuybackInitiated(
         PoolId poolId,
@@ -71,9 +72,8 @@ contract TWAMMHook is BaseHook, Ownable {
         IPoolManager _poolManager,
         address _daoToken,
         address _daoTreasury,
-        uint256 _maxBuybackDuration,
-        address _owner
-    ) BaseHook(_poolManager) Ownable(_owner) {
+        uint256 _maxBuybackDuration
+    ) BaseHook(_poolManager) Ownable(msg.sender) {
         daoToken = _daoToken;
         daoTreasury = _daoTreasury;
         maxBuybackDuration = _maxBuybackDuration;
@@ -106,22 +106,20 @@ contract TWAMMHook is BaseHook, Ownable {
             });
     }
 
+
     /// @notice Initiates a new buyback order
     /// @param key The PoolKey for the pool where the buyback will occur
     /// @param totalAmount The total amount of tokens to buy back
     /// @param duration The duration over which the buyback should occur
     /// @return The PoolKey of the initiated buyback
 
-    // @note - if the buyback is predictable than anyone can sandwich the transaction, but does that matter?
 
-    // @note - pass in the zeroForOne bool too, of true transfer in currency 0 and buy back currency 1, and if it is currency 1 transfer in currency 1 and buy back currency 0
-
-    // @note - anyone can call this, if it's a fwb deployed pool and someone calls them before them, fucked. 
     function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval, bool zeroForOne)
         external
         onlyOwner
         returns (PoolKey memory)
     {
+
         // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
 
         if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();

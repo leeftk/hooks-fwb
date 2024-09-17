@@ -23,14 +23,13 @@ import {ERC20} from "solmate/src/tokens/ERC20.sol";
 
 contract DeployTWAMM is Script {
     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
-    uint256 deployerPrivateKey = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
     PoolKey key;
     TWAMMHook twammHook;
     function setUp() public {}
 
     function run() public {
 
-        vm.startBroadcast(0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80);
+        vm.startBroadcast();
 
         // Deploy PoolManager
         PoolManager manager = new PoolManager(500000);
@@ -61,8 +60,7 @@ contract DeployTWAMM is Script {
             IPoolManager(address(manager)),
             address(daoToken),
             daoTreasury,
-            maxBuybackDuration,
-            msg.sender
+            maxBuybackDuration
         );
         twammHook = twammHook;
         console.log("twammHook", address(twammHook));
@@ -82,7 +80,7 @@ contract DeployTWAMM is Script {
         
 
 
-        twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
+        //twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
 
         (address initiator,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
         vm.stopBroadcast();
@@ -128,8 +126,8 @@ contract DeployTWAMM is Script {
         PoolSwapTest swapRouter
     ) internal {
         (MockERC20 token0, MockERC20 token1) = deployTokens();
-        token0.mint(address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266), 100_0000000 ether);
-        token1.mint(address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266), 100_00000000 ether);
+        token0.mint(address(0x1B382A7b4496F14e0AAA2DA1E1626Da400426A03), 100_0000000 ether);
+        token1.mint(address(0x1B382A7b4496F14e0AAA2DA1E1626Da400426A03), 100_00000000 ether);
         token0.mint(address(twammHook), 100_000 ether);
         token1.mint(address(twammHook), 100_000 ether);
 
