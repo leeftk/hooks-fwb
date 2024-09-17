@@ -21,6 +21,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 contract TWAMMHook is BaseHook, Ownable {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
+    string public message;
 
     event BuybackInitiated(
         PoolId poolId,
@@ -108,22 +109,20 @@ contract TWAMMHook is BaseHook, Ownable {
             });
     }
 
+
     /// @notice Initiates a new buyback order
     /// @param key The PoolKey for the pool where the buyback will occur
     /// @param totalAmount The total amount of tokens to buy back
     /// @param duration The duration over which the buyback should occur
     /// @return The PoolKey of the initiated buyback
 
-    // @note - if the buyback is predictable than anyone can sandwich the transaction, but does that matter?
 
-    // @note - pass in the zeroForOne bool too, of true transfer in currency 0 and buy back currency 1, and if it is currency 1 transfer in currency 1 and buy back currency 0
-
-    // @note - anyone can call this, if it's a fwb deployed pool and someone calls them before them, fucked. 
     function initiateBuyback(PoolKey calldata key, uint256 totalAmount, uint256 duration, uint256 executionInterval, bool zeroForOne)
         external
         onlyOwner
         returns (PoolKey memory) //@audit-info -> Currently, for the MVP demo, this should be okay but in PROD this should be a permissioned function or a malicious user can frontrun that can result in DoS attack vectors
     {
+
         // 1000 % 10 = 0, total duration of 1000 hours and we will buys after every 10 hours, need to take care of the edge where like there is no buying for 20 hours let's say
 
         if (duration % executionInterval != 0) revert IntervalDoesNotDivideDuration();
@@ -149,10 +148,12 @@ contract TWAMMHook is BaseHook, Ownable {
 
         if(zeroForOne)
         {
+            console.log("address of token in the hook", address(Currency.unwrap(key.currency0)));
                     ERC20(Currency.unwrap(key.currency0)).transferFrom(msg.sender, address(this), totalAmount);
         }
         else
-        {
+        {console.log("address of token in the hook", address(Currency.unwrap(key.currency1)));
+        console.log("balance of msg.sender of token 1", ERC20(Currency.unwrap(key.currency1)).balanceOf(msg.sender));
                     ERC20(Currency.unwrap(key.currency1)).transferFrom(msg.sender, address(this), totalAmount);
 
         }
