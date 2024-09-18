@@ -231,7 +231,20 @@ contract TWAMMHook is BaseHook, Ownable {
                     additionalAmount
                 );
             }
-        } //@audit-info -> missing else logic in case where newTotalAmount < order.totalAmount, in that case, some of the key.currency0 needs to be refunded
+        }
+        else {
+        uint256 refundAmount = remainingAmount - newTotalAmount ;
+            if (order.zeroForOne) {
+                ERC20(Currency.unwrap(key.currency0)).transfer(
+                    msg.sender,
+                    refundAmount
+                );
+            } else {
+                ERC20(Currency.unwrap(key.currency1)).transfer(
+                    msg.sender,
+                    refundAmount
+                );
+            }        }
 
         // Update the order
         order.totalAmount = newTotalAmount;
