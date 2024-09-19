@@ -90,7 +90,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         PoolKey memory returnedKey = twammHook.initiateBuyback(poolKey, buybackAmount, duration, interval, true);
         //totalAmount should be buybackAmount
         uint256 totalAmounts = twammHook.buybackAmounts(poolId);
-        console.log("totalAmount", totalAmounts);
 
         (
             address initiator,
@@ -161,7 +160,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
         // Simulate some tokens being bought
         uint256 balanceBefore = IERC20(Currency.unwrap(currency0)).balanceOf(address(this));
 
-        console.log("claimtokens balance hook", IERC20(Currency.unwrap(currency0)).balanceOf(address(twammHook)));
         twammHook.claimBoughtTokens(poolKey);
         uint256 balanceAfter = IERC20(Currency.unwrap(currency0)).balanceOf(address(this));
 
@@ -507,7 +505,6 @@ contract TWAMMHookTest is Test, GasSnapshot, Deployers {
 
             uint256 percentComplete = (timeElapsedIntervals * 100) / totalAmountOfIntervals;
             uint256 progress = twammHook.getBuybackProgress(poolKey);
-            console.log("percentComplete", percentComplete);
             assertEq(progress, percentComplete, "Progress should be 50% after half buyback");
         }
     }

@@ -82,7 +82,7 @@ contract DeployTWAMM is Script {
 
         //twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
 
-        (address initiator,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
+        (address initiator,,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
         vm.stopBroadcast();
     }
 
