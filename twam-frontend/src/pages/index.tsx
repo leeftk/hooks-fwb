@@ -1,16 +1,19 @@
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import type { NextPage } from "next";
 import Head from "next/head";
-import { useState, useEffect } from "react";
-import { WagmiProvider, http, useAccount } from "wagmi";
+import { useState, useEffect, useCallback } from "react";
+import { WagmiProvider, http, useAccount, useWalletClient } from "wagmi";
 import styles from "../styles/Home.module.css";
-import { ethers } from "ethers";
+import { BrowserProvider, ethers } from "ethers";
 import TWAMMHookABI from "../TWAMMHook.sol/TWAMMHook.json";
 import TwammLogo from "../twamm-logo.svg";
 import { useWriteContract } from "wagmi";
 import { CreateOrder } from "@/components/orders/create-order";
 import { WalletIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useContract } from "@/hooks/useContract";
+import { erc20Abi } from "viem";
+import ERC20ABI from "@/abis/ERC20ABi.json"
 
 const poolKeyArray = [
   "0xCfF560487550C16e86f8e350A11ca0938e50a7B6", // currency0
@@ -18,6 +21,14 @@ const poolKeyArray = [
   3000, // fee
   60, // tickSpacing
   "0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080", // hooks
+];
+
+const poolTypes = [
+  "address", // currency0
+  "address", // currency1
+  "uint24", // fee
+  "int24", // tickSpacing
+  "address", // hooks
 ];
 
 interface Order {
@@ -30,90 +41,122 @@ interface Order {
 }
 
 const Home: NextPage = () => {
-  const { isConnected } = useAccount();
-  const { writeContract, isLoading, isSuccess, error } = useWriteContract();
-
-  const handleUpdateMessage = () => {
-    if (isConnected) {
-      writeContract({
-        address: "0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080",
-        abi: TWAMMHookABI.abi,
-        functionName: "updateMessage",
-      });
-    } else {
-      console.log("Wallet not connected");
-    }
-  };
+  const contractAddress = "0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080";
+  const ABI = TWAMMHookABI.abi;
 
   const [duration, setDuration] = useState("");
   const [interval, setInterval] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [contract, setContract] = useState<ethers.Contract | null>(null);
   const [buybackDetails, setBuybackDetails] = useState<any>(null);
   const [daoTreasury, setDaoTreasury] = useState<string | null>(null);
   const [currentOrder, setCurrentOrder] = useState<Order | null>(null);
   const [completedOrders, setCompletedOrders] = useState<Order[]>([]);
   const [message, setMessage] = useState<string>("");
+  const { contract, signer } = useContract(contractAddress, ABI);
+  const { isConnected } = useAccount();
 
-  const { address } = useAccount();
+  // const handleUpdateMessage = () => {
+  //   if (contract) {
+  //     writeContract({
+  //       address: "0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080",
+  //       abi: TWAMMHookABI.abi,
+  //       functionName: "updateMessage",
+  //     });
+  //   } else {
+  //     console.log("Wallet not connected");
+  //   }
+  // };
+
+  // const getSigner = useCallback(async () => {
+  //   if (walletClient) {
+  //     const ethersProvider = new BrowserProvider(walletClient);
+  //     const newSigner = await ethersProvider.getSigner();
+  //     setSigner(newSigner);
+  //   }
+  // }, [walletClient]);
+
+  // useEffect(() => {
+  //   getSigner();
+  // }, [getSigner]);
 
   useEffect(() => {
-    const initializeContract = async () => {
-      if (typeof window.ethereum !== "undefined") {
-        try {
-          const provider = new ethers.BrowserProvider(window.ethereum);
-          await provider.send("eth_requestAccounts", []);
-          const signer = await provider.getSigner();
-          const contractAddress = "0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080";
-          const twammHook = new ethers.Contract(
-            contractAddress,
-            TWAMMHookABI.abi,
-            signer
-          );
-          console.log("Contract initialized:", twammHook);
-          setContract(twammHook);
-        } catch (error) {
-          console.error("Failed to initialize contract:", error);
-        }
-      }
+    const fetchBuybackOrders = async () => {
+      console.log(signer);
+     
+
+      // if (contract) {
+      //   try {
+      //     const encodedPoolArray = ethers.AbiCoder.defaultAbiCoder().encode(
+      //       poolTypes,
+      //       poolKeyArray
+      //     );
+      //     const bytesArray = ethers.encodeBytes32String(encodedPoolArray);
+      //     const result = await contract.buybackOrders(bytesArray);
+      //     // setBuybackOrder(result);
+      //     console.log(result);
+      //   } catch (error) {
+      //     console.error("Error fetching buyback order:", error);
+      //   }
+      // }
     };
 
-    initializeContract();
+    fetchBuybackOrders();
   }, []);
 
   const getBuybackDetails = async () => {
-    if (contract) {
       try {
-        const details = await contract.getBuybackOrderDetails(poolKeyArray);
-        setBuybackDetails(details);
-      } catch (error) {
+        const provider = new ethers.JsonRpcProvider('https://eth-sepolia.g.alchemy.com/v2/PLq0JeH1u8jXfyBrGWclpYCvFrZbGQXk');
+
+        // const provider = new ethers.JsonRpcProvider('https://sepolia.infura.io/v3/f9def3eaa27544bfb40914e2e9d21bb6');
+        const hookContract = new ethers.Contract("0x76118c7e1B8D4f0813688747Fb73c8ce9A4B8080", ABI, provider);
+        const tokenContract = new ethers.Contract(`${poolKeyArray[0]}`, ERC20ABI, provider);
+        // const result = await tokenContract.symbol();
+        // console.log(result);
+        const code = await provider.getCode(`0xCfF560487550C16e86f8e350A11ca0938e50a7B6`)
+        
+        // const result
+        // const result = await readContract.getBuybackOrderDetails(
+      //   currency0: poolKeyArray[0],
+      //     currency1: poolKeyArray[1],
+      //     fee: poolKeyArray[2],
+      //     tickSpacing: poolKeyArray[3],
+      //     hooks: poolKeyArray[4]
+      // }
+        // poolKeyArray
+      // );
+        console.log(code);
+
+        // setBuybackDetails(result);
+      } catch (error:any) {
         console.error("Error fetching buyback details:", error);
       }
-    }
   };
 
   const getDaoTreasury = async () => {
-    if (contract) {
-      try {
-        const treasury = await contract.daoTreasury();
-        if (treasury === "0x" || !treasury) {
-          console.warn("DAO Treasury address is empty or invalid");
-          setDaoTreasury("No DAO Treasury address set");
-        } else {
-          setDaoTreasury(treasury);
-          console.log("DAO Treasury address:", treasury);
-        }
-      } catch (error: any) {
-        console.error("Error fetching DAO Treasury:", error);
-        if (error.reason) console.error("Error reason:", error.reason);
-        if (error.code) console.error("Error code:", error.code);
-        if (error.method) console.error("Failed method:", error.method);
-        setDaoTreasury("Error: Unable to fetch DAO Treasury");
-      }
-    } else {
-      console.error("Contract not initialized");
-      setDaoTreasury("Error: Contract not initialized");
+    if (signer) {
+      console.log(signer);
     }
+    // if (contract) {
+    //   try {
+    //     const treasury = await contract.daoTreasury();
+    //     if (treasury === "0x" || !treasury) {
+    //       console.warn("DAO Treasury address is empty or invalid");
+    //       setDaoTreasury("No DAO Treasury address set");
+    //     } else {
+    //       setDaoTreasury(treasury);
+    //       console.log("DAO Treasury address:", treasury);
+    //     }
+    //   } catch (error: any) {
+    //     console.error("Error fetching DAO Treasury:", error);
+    //     if (error.reason) console.error("Error reason:", error.reason);
+    //     if (error.code) console.error("Error code:", error.code);
+    //     if (error.method) console.error("Failed method:", error.method);
+    //     setDaoTreasury("Error: Unable to fetch DAO Treasury");
+    //   }
+    // } else {
+    //   console.error("Contract not initialized");
+    //   setDaoTreasury("Error: Contract not initialized");
+    // }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -379,22 +422,23 @@ const Home: NextPage = () => {
             </div>
 
             <div className="w-full lg:w-1/3 ">
-              <h2 className="text-2xl font-medium text-gray-900 mb-4">Hook Interactions</h2>
+              <h2 className="text-2xl font-medium text-gray-900 mb-4">
+                Hook Interactions
+              </h2>
 
               <div className="p-6 border border-gray-300 rounded-2xl">
                 <div>
                   <div className={styles.buttonGroup}>
                     <Button
                       onClick={getBuybackDetails}
-                    className="bg-blue-600 hover:bg-blue-700"
+                      className="bg-blue-600 hover:bg-blue-700"
                     >
                       Get Buyback Details
                     </Button>
                     <Button
-                    variant={'ghost'}
+                      variant={"ghost"}
                       onClick={getDaoTreasury}
-                    className="bg-transparent text-gray-800 border border-gray-800 hover:bg-gray-700 hover:text-white"
-                      
+                      className="bg-transparent text-gray-800 border border-gray-800 hover:bg-gray-700 hover:text-white"
                     >
                       Get DAO Treasury
                     </Button>
@@ -442,7 +486,7 @@ const Home: NextPage = () => {
                   </div>
                 </div>
 
-                <div className={styles.messageSection}>
+                {/* <div className={styles.messageSection}>
                   <h2 className="font-medium text-gray-700 mt-6 mb-3">Update Message</h2>
                   <button
                     onClick={handleUpdateMessage}
@@ -454,7 +498,7 @@ const Home: NextPage = () => {
                   {isSuccess && <p>Message updated successfully!</p>}
                   {error && <p>Error updating message</p>}
                   {!isConnected && <p>Please connect your wallet</p>}
-                </div>
+                </div> */}
               </div>
             </div>
           </div>

@@ -52,8 +52,9 @@ contract DeployTWAMM is Script {
             CREATE2_DEPLOYER,
             permissions,
             type(TWAMMHook).creationCode,
-            abi.encode(address(manager), address(daoToken), daoTreasury, maxBuybackDuration, msg.sender)
+            abi.encode(address(manager), address(daoToken), daoTreasury, maxBuybackDuration)
         );
+        console.log("hookAddress:", hookAddress);
 
         // Deploy the hook
         TWAMMHook twammHook = new TWAMMHook{salt: salt}(
@@ -82,7 +83,7 @@ contract DeployTWAMM is Script {
 
         //twammHook.initiateBuyback(key, 1000 ether, 1000, 10, false);
 
-        (address initiator,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
+        (address initiator,,,,,,,,uint256 remainingAmount,) = twammHook.getBuybackOrderDetails(key);
         vm.stopBroadcast();
     }
 
